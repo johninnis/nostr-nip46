@@ -88,7 +88,7 @@ final class Nip46ClientTest extends TestCase
         $result = $client->connect($this->bunkerUrl());
 
         $this->assertInstanceOf(Nip46Failure::class, $result);
-        $this->assertSame(Nip46FailureReason::TimedOut, $result->reason);
+        $this->assertSame(Nip46FailureReason::TimedOut, $result->getReason());
         $this->assertTrue($transport->cancelled);
     }
 
@@ -99,8 +99,8 @@ final class Nip46ClientTest extends TestCase
         $result = $client->connect($this->bunkerUrl());
 
         $this->assertInstanceOf(Nip46Failure::class, $result);
-        $this->assertSame(Nip46FailureReason::Rejected, $result->reason);
-        $this->assertSame('invalid secret', $result->detail);
+        $this->assertSame(Nip46FailureReason::Rejected, $result->getReason());
+        $this->assertSame('invalid secret', $result->getDetail());
     }
 
     public function testANonHexPublicKeyAnswerIsAnInvalidResponse(): void
@@ -115,7 +115,7 @@ final class Nip46ClientTest extends TestCase
         $result = $client->connect($this->bunkerUrl());
 
         $this->assertInstanceOf(Nip46Failure::class, $result);
-        $this->assertSame(Nip46FailureReason::InvalidResponse, $result->reason);
+        $this->assertSame(Nip46FailureReason::InvalidResponse, $result->getReason());
     }
 
     public function testACryptoCallBeforeConnectIsAFault(): void
@@ -176,8 +176,8 @@ final class Nip46ClientTest extends TestCase
         $result = $client->nip44Decrypt(TestKeys::clientPubkey(), 'not-encrypted');
 
         $this->assertInstanceOf(Nip46Failure::class, $result);
-        $this->assertSame(Nip46FailureReason::Rejected, $result->reason);
-        $this->assertSame('decryption failed', $result->detail);
+        $this->assertSame(Nip46FailureReason::Rejected, $result->getReason());
+        $this->assertSame('decryption failed', $result->getDetail());
     }
 
     public function testSignEventReturnsTheVerifiedSignedEvent(): void
@@ -201,7 +201,7 @@ final class Nip46ClientTest extends TestCase
         $result = $client->signEvent($foreign->getRumour());
 
         $this->assertInstanceOf(Nip46Failure::class, $result);
-        $this->assertSame(Nip46FailureReason::IdentityMismatch, $result->reason);
+        $this->assertSame(Nip46FailureReason::IdentityMismatch, $result->getReason());
     }
 
     public function testAnUnverifiableSignatureIsRejected(): void
@@ -213,7 +213,7 @@ final class Nip46ClientTest extends TestCase
         $result = $client->signEvent($signed->getRumour());
 
         $this->assertInstanceOf(Nip46Failure::class, $result);
-        $this->assertSame(Nip46FailureReason::InvalidSignature, $result->reason);
+        $this->assertSame(Nip46FailureReason::InvalidSignature, $result->getReason());
     }
 
     public function testAnAuthUrlChallengeNotifiesTheListenerWithoutCompletingTheCall(): void
@@ -230,7 +230,7 @@ final class Nip46ClientTest extends TestCase
 
         $this->assertSame(['https://bunker.example/authorise'], $listener->urls);
         $this->assertInstanceOf(Nip46Failure::class, $result);
-        $this->assertSame(Nip46FailureReason::TimedOut, $result->reason);
+        $this->assertSame(Nip46FailureReason::TimedOut, $result->getReason());
     }
 
     public function testARequestTheCipherCannotCarryIsAReturnedFailure(): void
@@ -244,7 +244,7 @@ final class Nip46ClientTest extends TestCase
         $result = $client->signEvent(self::oversizeRumour());
 
         $this->assertInstanceOf(Nip46Failure::class, $result);
-        $this->assertSame(Nip46FailureReason::EncryptionFailed, $result->reason);
+        $this->assertSame(Nip46FailureReason::EncryptionFailed, $result->getReason());
     }
 
     public function testNoPendingSlotIsOpenedForARequestThatCannotBeSealed(): void

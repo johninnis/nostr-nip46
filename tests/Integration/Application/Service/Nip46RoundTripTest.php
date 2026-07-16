@@ -107,7 +107,7 @@ final class Nip46RoundTripTest extends TestCase
         $result = $this->client->connect($wrongSecretUrl);
 
         $this->assertInstanceOf(Nip46Failure::class, $result);
-        $this->assertSame(Nip46FailureReason::Rejected, $result->reason);
-        $this->assertSame('invalid secret', $result->detail);
+        $this->assertSame(Nip46FailureReason::Rejected, $result->getReason());
+        $this->assertSame('invalid secret', $result->getDetail());
     }
 }

@@ -11,10 +11,25 @@ use Innis\Nostr\Nip46\Domain\Enum\Nip46Method;
 final readonly class Nip46Failure
 {
     private function __construct(
-        public Nip46FailureReason $reason,
-        public Nip46Method|Nip46CryptoMethod $method,
-        public ?string $detail = null,
+        private Nip46FailureReason $reason,
+        private Nip46Method|Nip46CryptoMethod $method,
+        private ?string $detail = null,
     ) {
+    }
+
+    public function getReason(): Nip46FailureReason
+    {
+        return $this->reason;
+    }
+
+    public function getMethod(): Nip46Method|Nip46CryptoMethod
+    {
+        return $this->method;
+    }
+
+    public function getDetail(): ?string
+    {
+        return $this->detail;
     }
 
     public static function encryptionFailed(Nip46Method|Nip46CryptoMethod $method): self
