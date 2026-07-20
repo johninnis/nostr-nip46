@@ -71,8 +71,7 @@ final class Nip46RoundTripTest extends TestCase
             new InstantPendingResponses(),
         );
 
-        $secret = ConnectSecret::tryFromString(self::SECRET)
-            ?? throw new RuntimeException('Invalid fixture secret');
+        $secret = ConnectSecret::fromString(self::SECRET);
         $this->bunkerUrl = $this->bunker->bunkerUrlFor($secret)
             ?? throw new RuntimeException('Bunker did not start');
     }
@@ -101,7 +100,7 @@ final class Nip46RoundTripTest extends TestCase
         $wrongSecretUrl = new BunkerUrl(
             $this->bunkerUrl->getRemoteSignerPubkey(),
             $this->bunkerUrl->getRelays(),
-            ConnectSecret::tryFromString('not-the-secret') ?? throw new RuntimeException('Invalid fixture secret'),
+            ConnectSecret::fromString('not-the-secret'),
         );
 
         $result = $this->client->connect($wrongSecretUrl);

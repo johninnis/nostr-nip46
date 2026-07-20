@@ -319,7 +319,7 @@ final class Nip46BunkerTest extends TestCase
         $this->bunker->stop();
 
         $this->assertSame(1, $this->transport->cancelCount);
-        $this->assertNull($this->bunker->bunkerUrlFor($this->secret('secret')));
+        $this->assertNull($this->bunker->bunkerUrlFor(ConnectSecret::fromString('secret')));
     }
 
     public function testSignEventQueueingNotifiesTheQueueListener(): void
@@ -345,7 +345,7 @@ final class Nip46BunkerTest extends TestCase
 
     public function testBunkerUrlForEmbedsTheGivenSecret(): void
     {
-        $url = $this->bunker->bunkerUrlFor($this->secret('topsecret'));
+        $url = $this->bunker->bunkerUrlFor(ConnectSecret::fromString('topsecret'));
 
         self::assertNotNull($url);
         $this->assertStringContainsString('secret=topsecret', (string) $url);
@@ -510,10 +510,5 @@ final class Nip46BunkerTest extends TestCase
         $relay = RelayUrl::tryFromString('wss://relay.example.com') ?? throw new RuntimeException('relay');
 
         return new RelayUrlCollection([$relay]);
-    }
-
-    private function secret(string $raw): ConnectSecret
-    {
-        return ConnectSecret::tryFromString($raw) ?? throw new RuntimeException('Invalid fixture secret: '.$raw);
     }
 }

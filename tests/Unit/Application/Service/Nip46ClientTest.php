@@ -372,8 +372,7 @@ final class Nip46ClientTest extends TestCase
         $relay = RelayUrl::tryFromString('wss://relay.example')
             ?? throw new RuntimeException('Invalid fixture relay');
 
-        $secret = ConnectSecret::tryFromString(self::SECRET)
-            ?? throw new RuntimeException('Invalid fixture secret');
+        $secret = ConnectSecret::fromString(self::SECRET);
 
         return new BunkerUrl(TestKeys::signerPubkey(), new RelayUrlCollection([$relay]), $secret);
     }

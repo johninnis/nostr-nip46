@@ -5,14 +5,14 @@ declare(strict_types=1);
 namespace Innis\Nostr\Nip46\Tests\Unit\Domain\ValueObject;
 
 use Innis\Nostr\Nip46\Domain\ValueObject\ConnectSecret;
+use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use RuntimeException;
 
 final class ConnectSecretTest extends TestCase
 {
     public function testCarriesTheSecretVerbatim(): void
     {
-        $this->assertSame('topsecret', (string) self::secret('topsecret'));
+        $this->assertSame('topsecret', (string) ConnectSecret::fromString('topsecret'));
     }
 
     public function testRejectsAnEmptySecret(): void
@@ -20,18 +20,25 @@ final class ConnectSecretTest extends TestCase
         $this->assertNull(ConnectSecret::tryFromString(''));
     }
 
+    public function testFromStringCarriesTheSecretVerbatim(): void
+    {
+        $this->assertSame('topsecret', (string) ConnectSecret::fromString('topsecret'));
+    }
+
+    public function testFromStringRejectsAnEmptySecret(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        ConnectSecret::fromString('');
+    }
+
     public function testEqualSecretsCompareEqual(): void
     {
-        $this->assertTrue(self::secret('topsecret')->equals(self::secret('topsecret')));
+        $this->assertTrue(ConnectSecret::fromString('topsecret')->equals(ConnectSecret::fromString('topsecret')));
     }
 
     public function testDifferentSecretsCompareUnequal(): void
     {
-        $this->assertFalse(self::secret('topsecret')->equals(self::secret('other')));
-    }
-
-    private static function secret(string $raw): ConnectSecret
-    {
-        return ConnectSecret::tryFromString($raw) ?? throw new RuntimeException('Invalid fixture secret: '.$raw);
+        $this->assertFalse(ConnectSecret::fromString('topsecret')->equals(ConnectSecret::fromString('other')));
     }
 }

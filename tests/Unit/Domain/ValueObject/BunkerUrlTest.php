@@ -11,7 +11,6 @@ use Innis\Nostr\Nip46\Domain\ValueObject\ConnectSecret;
 use Innis\Nostr\Nip46\Tests\Support\TestKeys;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use RuntimeException;
 
 final class BunkerUrlTest extends TestCase
 {
@@ -32,7 +31,7 @@ final class BunkerUrlTest extends TestCase
         $url = new BunkerUrl(
             TestKeys::signerPubkey(),
             new RelayUrlCollection([$this->relay('wss://relay.example.com'), $this->relay('wss://nos.lol')]),
-            $this->secret('hunter2'),
+            ConnectSecret::fromString('hunter2'),
         );
 
         $reparsed = BunkerUrl::tryFromString((string) $url);
@@ -67,7 +66,7 @@ final class BunkerUrlTest extends TestCase
     {
         $this->expectException(InvalidArgumentException::class);
 
-        new BunkerUrl(TestKeys::signerPubkey(), new RelayUrlCollection(), $this->secret('hunter2'));
+        new BunkerUrl(TestKeys::signerPubkey(), new RelayUrlCollection(), ConnectSecret::fromString('hunter2'));
     }
 
     private function relay(string $url): RelayUrl
@@ -76,10 +75,5 @@ final class BunkerUrlTest extends TestCase
         self::assertNotNull($relay);
 
         return $relay;
-    }
-
-    private function secret(string $raw): ConnectSecret
-    {
-        return ConnectSecret::tryFromString($raw) ?? throw new RuntimeException('Invalid fixture secret: '.$raw);
     }
 }
