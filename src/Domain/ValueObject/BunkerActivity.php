@@ -9,12 +9,27 @@ use Innis\Nostr\Nip46\Domain\Enum\BunkerActivityOutcome;
 
 final readonly class BunkerActivity
 {
-    public function __construct(
+    private function __construct(
         private string $method,
         private AppId $appId,
         private ?PublicKey $counterparty,
         private BunkerActivityOutcome $outcome,
     ) {
+    }
+
+    public static function forDetail(AppId $appId, PendingRequestDetailInterface $detail, Nip46Response $response): self
+    {
+        return new self(
+            $detail->getPermission()->getMethod()->value,
+            $appId,
+            $detail->getCounterparty(),
+            self::outcomeOf($response),
+        );
+    }
+
+    public static function forRequest(AppId $appId, IncomingRequest $incoming, Nip46Response $response): self
+    {
+        return new self($incoming->getMethod(), $appId, null, self::outcomeOf($response));
     }
 
     public function getMethod(): string
@@ -35,5 +50,10 @@ final readonly class BunkerActivity
     public function getOutcome(): BunkerActivityOutcome
     {
         return $this->outcome;
+    }
+
+    private static function outcomeOf(Nip46Response $response): BunkerActivityOutcome
+    {
+        return null === $response->getError() ? BunkerActivityOutcome::Answered : BunkerActivityOutcome::Failed;
     }
 }

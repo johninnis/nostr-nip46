@@ -19,7 +19,6 @@ use Innis\Nostr\Nip46\Application\Port\Nip46SubscriptionInterface;
 use Innis\Nostr\Nip46\Application\Port\Nip46TransportInterface;
 use Innis\Nostr\Nip46\Domain\Collection\PendingRequestCollection;
 use Innis\Nostr\Nip46\Domain\Entity\BunkerSession;
-use Innis\Nostr\Nip46\Domain\Enum\BunkerActivityOutcome;
 use Innis\Nostr\Nip46\Domain\Enum\Nip46Method;
 use Innis\Nostr\Nip46\Domain\Factory\Nip46FilterFactory;
 use Innis\Nostr\Nip46\Domain\Service\Nip46EnvelopeCodec;
@@ -301,7 +300,7 @@ final class Nip46Bunker implements Nip46BunkerInterface, Nip46EventListenerInter
 
         $response = $detail->answer($incoming->getId(), $this->signer, $this->clock->now());
         $this->respond($session, $clientPubkey, $response);
-        $this->recordAnswer($appId, $detail, $response);
+        $this->notify(BunkerActivity::forDetail($appId, $detail, $response));
     }
 
     private function queue(BunkerSession $session, PendingRequest $pending): void
@@ -318,7 +317,12 @@ final class Nip46Bunker implements Nip46BunkerInterface, Nip46EventListenerInter
     private function answerNow(BunkerSession $session, IncomingRequest $incoming, Nip46Response $response): void
     {
         $this->respond($session, $incoming->getClientPubkey(), $response);
-        $this->recordAnswer($session->appIdFor($incoming->getClientPubkey()), $incoming->getMethod(), $response);
+
+        $appId = $session->appIdFor($incoming->getClientPubkey());
+
+        if (null !== $appId) {
+            $this->notify(BunkerActivity::forRequest($appId, $incoming, $response));
+        }
     }
 
     // Deliberate: the signer's own relay set is reported, switching nothing — it is the migration hint a client-supplied relay set is answered with — see ADR-0018.
@@ -364,20 +368,9 @@ final class Nip46Bunker implements Nip46BunkerInterface, Nip46EventListenerInter
         $this->answerNow($session, $incoming, Nip46Response::result($incoming->getId(), 'ack'));
     }
 
-    private function recordAnswer(?AppId $appId, PendingRequestDetailInterface|string $subject, Nip46Response $response): void
+    private function notify(BunkerActivity $activity): void
     {
-        if (null === $this->activityListener || null === $appId) {
-            return;
-        }
-
-        $isDetail = $subject instanceof PendingRequestDetailInterface;
-
-        $this->activityListener->onActivity(new BunkerActivity(
-            method: $isDetail ? $subject->getPermission()->getMethod()->value : $subject,
-            appId: $appId,
-            counterparty: $isDetail ? $subject->getCounterparty() : null,
-            outcome: null === $response->getError() ? BunkerActivityOutcome::Answered : BunkerActivityOutcome::Failed,
-        ));
+        $this->activityListener?->onActivity($activity);
     }
 
     private function respond(BunkerSession $session, PublicKey $clientPubkey, Nip46Response $response): void
