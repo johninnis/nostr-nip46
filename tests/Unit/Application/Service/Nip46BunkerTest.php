@@ -14,10 +14,14 @@ use Innis\Nostr\Nip46\Application\Service\Nip46Bunker;
 use Innis\Nostr\Nip46\Domain\Entity\BunkerSession;
 use Innis\Nostr\Nip46\Domain\Enum\BunkerActivityOutcome;
 use Innis\Nostr\Nip46\Domain\Enum\EnvelopeCipher;
+use Innis\Nostr\Nip46\Domain\Enum\Nip46Method;
+use Innis\Nostr\Nip46\Domain\ValueObject\AppId;
 use Innis\Nostr\Nip46\Domain\ValueObject\BunkerActivity;
 use Innis\Nostr\Nip46\Domain\ValueObject\ConnectSecret;
+use Innis\Nostr\Nip46\Domain\ValueObject\NostrConnectUrl;
 use Innis\Nostr\Nip46\Tests\Support\EncryptionFailureSigner;
 use Innis\Nostr\Nip46\Tests\Support\FakeAuthenticator;
+use Innis\Nostr\Nip46\Tests\Support\FakeAuthoriser;
 use Innis\Nostr\Nip46\Tests\Support\FakeSigner;
 use Innis\Nostr\Nip46\Tests\Support\FixedClock;
 use Innis\Nostr\Nip46\Tests\Support\IncomingEnvelope;
@@ -49,7 +53,7 @@ final class Nip46BunkerTest extends TestCase
         $this->queue = new RecordingQueueListener();
         $this->activity = new RecordingActivityListener();
 
-        $this->bunker = new Nip46Bunker($this->transport, $this->signer, new FakeAuthenticator(self::SECRET), $this->clock);
+        $this->bunker = new Nip46Bunker($this->transport, $this->signer, new FakeAuthenticator(self::SECRET), FakeAuthoriser::grantingEverythingButSigning(), $this->clock);
         $this->bunker->setQueueListener($this->queue);
         $this->bunker->setActivityListener($this->activity);
         $this->bunker->start($this->relays());
@@ -266,7 +270,7 @@ final class Nip46BunkerTest extends TestCase
 
     public function testSigningFaultBecomesAnErrorResponse(): void
     {
-        $bunker = new Nip46Bunker($this->transport, new SigningFailureSigner($this->signer), new FakeAuthenticator(self::SECRET), $this->clock);
+        $bunker = new Nip46Bunker($this->transport, new SigningFailureSigner($this->signer), new FakeAuthenticator(self::SECRET), FakeAuthoriser::grantingEverythingButSigning(), $this->clock);
         $bunker->start($this->relays());
 
         $this->deliver(['id' => 'c1', 'method' => 'connect', 'params' => ['', self::SECRET]]);
@@ -278,7 +282,7 @@ final class Nip46BunkerTest extends TestCase
 
     public function testEncryptFaultOnUntrustedPlaintextBecomesAnErrorResponse(): void
     {
-        $bunker = new Nip46Bunker($this->transport, new EncryptionFailureSigner($this->signer), new FakeAuthenticator(self::SECRET), $this->clock);
+        $bunker = new Nip46Bunker($this->transport, new EncryptionFailureSigner($this->signer), new FakeAuthenticator(self::SECRET), FakeAuthoriser::grantingEverythingButSigning(), $this->clock);
         $bunker->start($this->relays());
 
         $this->deliver(['id' => 'c1', 'method' => 'connect', 'params' => ['', self::SECRET]]);
@@ -289,7 +293,7 @@ final class Nip46BunkerTest extends TestCase
 
     public function testResponseTooLargeToSealDegradesToAnErrorReply(): void
     {
-        $bunker = new Nip46Bunker($this->transport, new EncryptionFailureSigner($this->signer, 100), new FakeAuthenticator(self::SECRET), $this->clock);
+        $bunker = new Nip46Bunker($this->transport, new EncryptionFailureSigner($this->signer, 100), new FakeAuthenticator(self::SECRET), FakeAuthoriser::grantingEverythingButSigning(), $this->clock);
         $bunker->start($this->relays());
 
         $this->deliver(['id' => 'c1', 'method' => 'connect', 'params' => ['', self::SECRET]]);
@@ -341,6 +345,18 @@ final class Nip46BunkerTest extends TestCase
 
         $this->assertCount(1, $pending);
         $this->assertSame('app-1', (string) $pending[0]->getAppId());
+    }
+
+    public function testThePublicKeyIsTheSignersOwn(): void
+    {
+        $this->assertTrue($this->bunker->publicKey()->equals(TestKeys::signerPubkey()));
+    }
+
+    public function testThePublicKeyIsAvailableEvenWhenStopped(): void
+    {
+        $this->bunker->stop();
+
+        $this->assertTrue($this->bunker->publicKey()->equals(TestKeys::signerPubkey()));
     }
 
     public function testBunkerUrlForEmbedsTheGivenSecret(): void
@@ -446,13 +462,225 @@ final class Nip46BunkerTest extends TestCase
 
     public function testAnsweringWithoutAnActivityListenerIsANoOp(): void
     {
-        $bunker = new Nip46Bunker($this->transport, $this->signer, new FakeAuthenticator(self::SECRET), $this->clock);
+        $bunker = new Nip46Bunker($this->transport, $this->signer, new FakeAuthenticator(self::SECRET), FakeAuthoriser::grantingEverythingButSigning(), $this->clock);
         $bunker->start($this->relays());
 
         $this->deliver(['id' => 'c1', 'method' => 'connect', 'params' => ['', self::SECRET]]);
         $this->deliver(['id' => 'p1', 'method' => 'ping', 'params' => []]);
 
         $this->assertSame('pong', $this->decodeResponse()['result'] ?? null);
+    }
+
+    public function testAcceptingANostrConnectUrlEchoesTheSecretToTheClient(): void
+    {
+        $this->bunker->acceptNostrConnect($this->nostrConnectUrl(), AppId::fromString('app-1'));
+
+        $this->assertSame('nostrconnect-secret', $this->decodeResponseFor(TestKeys::secondClientPubkey())['result'] ?? null);
+    }
+
+    public function testAcceptingANostrConnectUrlPublishesToTheClientsOwnRelays(): void
+    {
+        $this->bunker->acceptNostrConnect($this->nostrConnectUrl(), AppId::fromString('app-1'));
+
+        $this->assertSame(['wss://relay.example.com', 'wss://client.example.com'], $this->transport->lastPublishedTo());
+    }
+
+    public function testAcceptingANostrConnectUrlSubscribesOnTheRelaysItDoesNotYetListenOn(): void
+    {
+        $this->bunker->acceptNostrConnect($this->nostrConnectUrl(), AppId::fromString('app-1'));
+
+        $this->assertSame([['wss://relay.example.com'], ['wss://client.example.com']], $this->transport->subscribedRelays);
+    }
+
+    public function testPairingTwiceOnTheSameRelaySubscribesOnce(): void
+    {
+        $this->bunker->acceptNostrConnect($this->nostrConnectUrl(), AppId::fromString('app-1'));
+        $this->bunker->acceptNostrConnect($this->nostrConnectUrl(), AppId::fromString('app-2'));
+
+        $this->assertCount(2, $this->transport->subscribedRelays);
+    }
+
+    public function testAPairedClientIsAuthenticatedWithoutSendingConnect(): void
+    {
+        $this->bunker->acceptNostrConnect($this->nostrConnectUrl(), AppId::fromString('app-1'));
+
+        $this->deliver(['id' => 's1', 'method' => 'sign_event', 'params' => [(string) json_encode(['kind' => 1])]], TestKeys::secondClientPubkey());
+
+        $pending = $this->bunker->getPending()->toArray();
+        $this->assertCount(1, $pending);
+        $this->assertSame('app-1', (string) $pending[0]->getAppId());
+    }
+
+    public function testAcceptingANostrConnectUrlWithoutARunningSessionIsRefused(): void
+    {
+        $this->bunker->stop();
+
+        $this->assertFalse($this->bunker->acceptNostrConnect($this->nostrConnectUrl(), AppId::fromString('app-1')));
+    }
+
+    public function testRestoringAPairingAuthenticatesTheClientWithoutAnEcho(): void
+    {
+        $this->bunker->restorePairing(TestKeys::secondClientPubkey(), AppId::fromString('app-1'), $this->clientRelays());
+
+        $this->assertSame([], $this->transport->published);
+
+        $this->deliver(['id' => 'g1', 'method' => 'get_public_key', 'params' => []], TestKeys::secondClientPubkey());
+
+        $this->assertSame(TestKeys::signerPubkey()->toHex(), $this->decodeResponseFor(TestKeys::secondClientPubkey())['result'] ?? null);
+    }
+
+    public function testRestoringAPairingWithoutARunningSessionIsRefused(): void
+    {
+        $this->bunker->stop();
+
+        $this->assertFalse($this->bunker->restorePairing(TestKeys::secondClientPubkey(), AppId::fromString('app-1'), $this->clientRelays()));
+    }
+
+    public function testStopCancelsEverySubscription(): void
+    {
+        $this->bunker->acceptNostrConnect($this->nostrConnectUrl(), AppId::fromString('app-1'));
+
+        $this->bunker->stop();
+
+        $this->assertSame(2, $this->transport->cancelCount);
+    }
+
+    public function testAnUngrantedCryptoRequestIsQueuedRatherThanRefused(): void
+    {
+        $bunker = $this->bunkerGranting(FakeAuthoriser::grantingNothing());
+        $this->connect();
+        $publishedBefore = count($this->transport->published);
+
+        $this->deliver(['id' => 'd1', 'method' => 'nip44_decrypt', 'params' => [TestKeys::clientPubkey()->toHex(), 'ciphertext']]);
+
+        $this->assertSame(1, $bunker->getPending()->count());
+        $this->assertCount($publishedBefore, $this->transport->published);
+    }
+
+    public function testApprovingAQueuedCryptoRequestAnswersIt(): void
+    {
+        $bunker = $this->bunkerGranting(FakeAuthoriser::grantingNothing());
+        $this->connect();
+        $this->deliver(['id' => 'd1', 'method' => 'nip44_decrypt', 'params' => [TestKeys::clientPubkey()->toHex(), $this->signer->encrypt(TestKeys::clientPubkey(), 'gm', EnvelopeCipher::Nip44)]]);
+
+        $bunker->approve($this->firstPendingId($bunker));
+
+        $this->assertSame('gm', $this->decodeResponse()['result'] ?? null);
+    }
+
+    public function testRejectingAQueuedCryptoRequestAnswersUserRejected(): void
+    {
+        $bunker = $this->bunkerGranting(FakeAuthoriser::grantingNothing());
+        $this->connect();
+        $this->deliver(['id' => 'd1', 'method' => 'nip44_decrypt', 'params' => [TestKeys::clientPubkey()->toHex(), 'ciphertext']]);
+
+        $bunker->reject($this->firstPendingId($bunker));
+
+        $this->assertSame('user rejected', $this->decodeResponse()['error'] ?? null);
+    }
+
+    public function testAnUngrantedGetPublicKeyIsQueued(): void
+    {
+        $bunker = $this->bunkerGranting(FakeAuthoriser::grantingNothing());
+        $this->connect();
+
+        $this->deliver(['id' => 'g1', 'method' => 'get_public_key', 'params' => []]);
+
+        $this->assertSame(1, $bunker->getPending()->count());
+    }
+
+    public function testAGrantedSignEventIsAnsweredWithoutQueueing(): void
+    {
+        $bunker = $this->bunkerGranting(FakeAuthoriser::granting('sign_event:1'));
+        $this->connect();
+
+        $this->deliver(['id' => 's1', 'method' => 'sign_event', 'params' => [(string) json_encode(['kind' => 1])]]);
+
+        $this->assertSame(0, $bunker->getPending()->count());
+        $this->assertNotNull($this->decodeResponse()['result'] ?? null);
+    }
+
+    public function testASignEventOfAnUngrantedKindIsStillQueued(): void
+    {
+        $bunker = $this->bunkerGranting(FakeAuthoriser::granting('sign_event:1'));
+        $this->connect();
+
+        $this->deliver(['id' => 's1', 'method' => 'sign_event', 'params' => [(string) json_encode(['kind' => 3])]]);
+
+        $this->assertSame(1, $bunker->getPending()->count());
+    }
+
+    public function testAnAutoAnsweredCryptoRequestIsRecordedAsActivityButAQueuedOneIsNot(): void
+    {
+        $bunker = $this->bunkerGranting(FakeAuthoriser::grantingNothing());
+        $bunker->setActivityListener($this->activity);
+        $this->connect();
+
+        $this->deliver(['id' => 'd1', 'method' => 'nip44_decrypt', 'params' => [TestKeys::clientPubkey()->toHex(), 'ciphertext']]);
+
+        $this->assertSame(['connect'], array_map(static fn (BunkerActivity $activity): string => $activity->getMethod(), $this->activity->activities));
+    }
+
+    public function testEveryMethodRequiringAuthorisationIsQueuedWhenUngranted(): void
+    {
+        $askable = array_values(array_filter(Nip46Method::cases(), static fn (Nip46Method $method): bool => $method->requiresAuthorisation()));
+
+        $bunker = $this->bunkerGranting(FakeAuthoriser::grantingNothing());
+        $this->connect();
+
+        foreach ($askable as $index => $method) {
+            $this->deliver(['id' => 'q'.$index, 'method' => $method->value, 'params' => self::paramsFor($method)]);
+        }
+
+        $this->assertCount(count($askable), $bunker->getPending()->toArray());
+    }
+
+    public function testAMethodNotRequiringAuthorisationIsNeverQueued(): void
+    {
+        $answered = array_values(array_filter(Nip46Method::cases(), static fn (Nip46Method $method): bool => !$method->requiresAuthorisation() && Nip46Method::Connect !== $method));
+
+        $bunker = $this->bunkerGranting(FakeAuthoriser::grantingNothing());
+        $this->connect();
+
+        foreach ($answered as $index => $method) {
+            $this->deliver(['id' => 'a'.$index, 'method' => $method->value, 'params' => self::paramsFor($method)]);
+        }
+
+        $this->assertSame(0, $bunker->getPending()->count());
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function paramsFor(Nip46Method $method): array
+    {
+        return match ($method) {
+            Nip46Method::SignEvent => [(string) json_encode(['kind' => 1])],
+            Nip46Method::Nip44Encrypt, Nip46Method::Nip44Decrypt,
+            Nip46Method::Nip04Encrypt, Nip46Method::Nip04Decrypt => [TestKeys::clientPubkey()->toHex(), 'payload'],
+            Nip46Method::Connect, Nip46Method::Ping, Nip46Method::GetPublicKey,
+            Nip46Method::SwitchRelays, Nip46Method::Logout => [],
+        };
+    }
+
+    private function bunkerGranting(FakeAuthoriser $authoriser): Nip46Bunker
+    {
+        $bunker = new Nip46Bunker($this->transport, $this->signer, new FakeAuthenticator(self::SECRET), $authoriser, $this->clock);
+        $bunker->start($this->relays());
+
+        return $bunker;
+    }
+
+    private function nostrConnectUrl(): NostrConnectUrl
+    {
+        return NostrConnectUrl::tryFromString(
+            'nostrconnect://'.TestKeys::secondClientPubkey()->toHex().'?relay=wss%3A%2F%2Fclient.example.com&secret=nostrconnect-secret&name=Emanator',
+        ) ?? throw new RuntimeException('nostrconnect url');
+    }
+
+    private function clientRelays(): RelayUrlCollection
+    {
+        return RelayUrlCollection::fromStrings(['wss://client.example.com']);
     }
 
     private function lastActivity(): BunkerActivity
@@ -493,10 +721,18 @@ final class Nip46BunkerTest extends TestCase
      */
     private function decodeResponse(): array
     {
+        return $this->decodeResponseFor(TestKeys::clientPubkey());
+    }
+
+    /**
+     * @return array<array-key, mixed>
+     */
+    private function decodeResponseFor(PublicKey $peer): array
+    {
         $event = $this->transport->lastPublished();
         self::assertInstanceOf(Event::class, $event);
 
-        $plaintext = $this->signer->decrypt(TestKeys::clientPubkey(), (string) $event->getContent(), EnvelopeCipher::Nip44);
+        $plaintext = $this->signer->decrypt($peer, (string) $event->getContent(), EnvelopeCipher::Nip44);
         self::assertNotNull($plaintext);
 
         $decoded = json_decode($plaintext, true);

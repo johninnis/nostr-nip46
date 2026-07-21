@@ -20,6 +20,7 @@ use Innis\Nostr\Nip46\Domain\ValueObject\BunkerUrl;
 use Innis\Nostr\Nip46\Domain\ValueObject\ConnectSecret;
 use Innis\Nostr\Nip46\Infrastructure\Crypto\LocalNip46Signer;
 use Innis\Nostr\Nip46\Tests\Support\FakeAuthenticator;
+use Innis\Nostr\Nip46\Tests\Support\FakeAuthoriser;
 use Innis\Nostr\Nip46\Tests\Support\FixedClock;
 use Innis\Nostr\Nip46\Tests\Support\InstantPendingResponses;
 use Innis\Nostr\Nip46\Tests\Support\LoopbackTransport;
@@ -44,6 +45,7 @@ final class Nip46RoundTripTest extends TestCase
             $bunkerTransport,
             LocalNip46Signer::create(PrivateKey::generate()),
             new FakeAuthenticator(self::SECRET),
+            FakeAuthoriser::grantingEverythingButSigning(),
             $clock,
         );
         $this->bunker->start(new RelayUrlCollection([

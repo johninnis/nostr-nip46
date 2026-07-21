@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Innis\Nostr\Nip46\Domain\Failure;
 
-use Innis\Nostr\Nip46\Domain\Enum\Nip46CryptoMethod;
 use Innis\Nostr\Nip46\Domain\Enum\Nip46FailureReason;
 use Innis\Nostr\Nip46\Domain\Enum\Nip46Method;
 
@@ -12,7 +11,7 @@ final readonly class Nip46Failure
 {
     private function __construct(
         private Nip46FailureReason $reason,
-        private Nip46Method|Nip46CryptoMethod $method,
+        private Nip46Method $method,
         private ?string $detail = null,
     ) {
     }
@@ -22,7 +21,7 @@ final readonly class Nip46Failure
         return $this->reason;
     }
 
-    public function getMethod(): Nip46Method|Nip46CryptoMethod
+    public function getMethod(): Nip46Method
     {
         return $this->method;
     }
@@ -32,32 +31,32 @@ final readonly class Nip46Failure
         return $this->detail;
     }
 
-    public static function encryptionFailed(Nip46Method|Nip46CryptoMethod $method): self
+    public static function encryptionFailed(Nip46Method $method): self
     {
         return new self(Nip46FailureReason::EncryptionFailed, $method);
     }
 
-    public static function timedOut(Nip46Method|Nip46CryptoMethod $method): self
+    public static function timedOut(Nip46Method $method): self
     {
         return new self(Nip46FailureReason::TimedOut, $method);
     }
 
-    public static function rejected(Nip46Method|Nip46CryptoMethod $method, string $error): self
+    public static function rejected(Nip46Method $method, string $error): self
     {
         return new self(Nip46FailureReason::Rejected, $method, $error);
     }
 
-    public static function invalidResponse(Nip46Method|Nip46CryptoMethod $method): self
+    public static function invalidResponse(Nip46Method $method): self
     {
         return new self(Nip46FailureReason::InvalidResponse, $method);
     }
 
-    public static function identityMismatch(Nip46Method|Nip46CryptoMethod $method): self
+    public static function identityMismatch(Nip46Method $method): self
     {
         return new self(Nip46FailureReason::IdentityMismatch, $method);
     }
 
-    public static function invalidSignature(Nip46Method|Nip46CryptoMethod $method): self
+    public static function invalidSignature(Nip46Method $method): self
     {
         return new self(Nip46FailureReason::InvalidSignature, $method);
     }

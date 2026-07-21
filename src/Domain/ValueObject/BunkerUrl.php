@@ -6,7 +6,6 @@ namespace Innis\Nostr\Nip46\Domain\ValueObject;
 
 use Innis\Nostr\Core\Domain\Collection\RelayUrlCollection;
 use Innis\Nostr\Core\Domain\ValueObject\Identity\PublicKey;
-use Innis\Nostr\Core\Domain\ValueObject\Protocol\RelayUrl;
 use InvalidArgumentException;
 use Override;
 use Stringable;
@@ -42,34 +41,25 @@ final readonly class BunkerUrl implements Stringable
 
     public static function tryFromString(string $raw): ?self
     {
-        $trimmed = trim($raw);
+        $uri = PairingUri::tryFromString($raw, self::SCHEME);
 
-        if (!str_starts_with($trimmed, self::SCHEME)) {
+        if (null === $uri) {
             return null;
         }
 
-        $rest = substr($trimmed, strlen(self::SCHEME));
-        $queryStart = strpos($rest, '?');
-        $pubkeyPart = false === $queryStart ? $rest : substr($rest, 0, $queryStart);
-        $queryPart = false === $queryStart ? '' : substr($rest, $queryStart + 1);
-
-        $remoteSignerPubkey = PublicKey::tryFromHex($pubkeyPart);
+        $remoteSignerPubkey = PublicKey::tryFromHex($uri->getOrigin());
 
         if (null === $remoteSignerPubkey) {
             return null;
         }
 
-        $query = self::parseQuery($queryPart);
-
-        $relays = new RelayUrlCollection(array_values(array_filter(
-            array_map(RelayUrl::tryFromString(...), $query['relay'] ?? []),
-        )));
+        $relays = RelayUrlCollection::fromStrings($uri->values('relay'));
 
         if ($relays->isEmpty()) {
             return null;
         }
 
-        return new self($remoteSignerPubkey, $relays, ConnectSecret::tryFromString($query['secret'][0] ?? ''));
+        return new self($remoteSignerPubkey, $relays, ConnectSecret::tryFromString($uri->first('secret') ?? ''));
     }
 
     #[Override]
@@ -88,28 +78,5 @@ final readonly class BunkerUrl implements Stringable
         $query = implode('&', $parameters);
 
         return self::SCHEME.$this->remoteSignerPubkey->toHex().('' === $query ? '' : '?'.$query);
-    }
-
-    /**
-     * @return array<string, list<string>>
-     */
-    private static function parseQuery(string $query): array
-    {
-        $parsed = [];
-
-        if ('' === $query) {
-            return $parsed;
-        }
-
-        foreach (explode('&', $query) as $pair) {
-            if ('' === $pair) {
-                continue;
-            }
-
-            [$key, $value] = array_pad(explode('=', $pair, 2), 2, '');
-            $parsed[rawurldecode($key)][] = rawurldecode($value);
-        }
-
-        return $parsed;
     }
 }

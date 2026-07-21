@@ -13,13 +13,13 @@ use Innis\Nostr\Core\Domain\ValueObject\Identity\PublicKey;
 use Innis\Nostr\Nip46\Application\Port\BunkerQueueListenerInterface;
 use Innis\Nostr\Nip46\Application\Port\Nip46ActivityListenerInterface;
 use Innis\Nostr\Nip46\Application\Port\Nip46AuthenticatorInterface;
+use Innis\Nostr\Nip46\Application\Port\Nip46AuthoriserInterface;
 use Innis\Nostr\Nip46\Application\Port\Nip46EventListenerInterface;
 use Innis\Nostr\Nip46\Application\Port\Nip46SubscriptionInterface;
 use Innis\Nostr\Nip46\Application\Port\Nip46TransportInterface;
-use Innis\Nostr\Nip46\Domain\Collection\PendingSignRequestCollection;
+use Innis\Nostr\Nip46\Domain\Collection\PendingRequestCollection;
 use Innis\Nostr\Nip46\Domain\Entity\BunkerSession;
 use Innis\Nostr\Nip46\Domain\Enum\BunkerActivityOutcome;
-use Innis\Nostr\Nip46\Domain\Enum\Nip46CryptoMethod;
 use Innis\Nostr\Nip46\Domain\Enum\Nip46Method;
 use Innis\Nostr\Nip46\Domain\Factory\Nip46FilterFactory;
 use Innis\Nostr\Nip46\Domain\Service\Nip46EnvelopeCodec;
@@ -28,10 +28,16 @@ use Innis\Nostr\Nip46\Domain\ValueObject\AppId;
 use Innis\Nostr\Nip46\Domain\ValueObject\BunkerActivity;
 use Innis\Nostr\Nip46\Domain\ValueObject\BunkerUrl;
 use Innis\Nostr\Nip46\Domain\ValueObject\ConnectSecret;
+use Innis\Nostr\Nip46\Domain\ValueObject\CryptoDetail;
+use Innis\Nostr\Nip46\Domain\ValueObject\GetPublicKeyDetail;
+use Innis\Nostr\Nip46\Domain\ValueObject\IncomingRequest;
 use Innis\Nostr\Nip46\Domain\ValueObject\Nip46Request;
 use Innis\Nostr\Nip46\Domain\ValueObject\Nip46Response;
-use Innis\Nostr\Nip46\Domain\ValueObject\PendingSignRequest;
-use Innis\Nostr\Nip46\Domain\ValueObject\UnsignedEventInput;
+use Innis\Nostr\Nip46\Domain\ValueObject\NostrConnectUrl;
+use Innis\Nostr\Nip46\Domain\ValueObject\PendingRequest;
+use Innis\Nostr\Nip46\Domain\ValueObject\PendingRequestDetailInterface;
+use Innis\Nostr\Nip46\Domain\ValueObject\RequestId;
+use Innis\Nostr\Nip46\Domain\ValueObject\SignEventDetail;
 use InvalidArgumentException;
 use Override;
 use Throwable;
@@ -41,15 +47,18 @@ final class Nip46Bunker implements Nip46BunkerInterface, Nip46EventListenerInter
     private readonly Nip46EnvelopeCodec $codec;
 
     private ?BunkerSession $session = null;
-    private ?Nip46SubscriptionInterface $subscription = null;
     private ?BunkerQueueListenerInterface $queueListener = null;
     private ?Nip46ActivityListenerInterface $activityListener = null;
 
-    // Deliberate: four irreducible driven ports, not a decomposable unit — see ADR-0006
+    /** @var list<Nip46SubscriptionInterface> */
+    private array $subscriptions = [];
+
+    // Deliberate: five irreducible driven ports, not a decomposable unit — see ADR-0019
     public function __construct(
         private readonly Nip46TransportInterface $transport,
         private readonly Nip46SignerInterface $signer,
         private readonly Nip46AuthenticatorInterface $authenticator,
+        private readonly Nip46AuthoriserInterface $authoriser,
         private readonly ClockInterface $clock,
     ) {
         $this->codec = new Nip46EnvelopeCodec($signer);
@@ -78,18 +87,72 @@ final class Nip46Bunker implements Nip46BunkerInterface, Nip46EventListenerInter
 
         $this->session = new BunkerSession($relays);
 
-        $filter = Nip46FilterFactory::addressedTo($this->signer->publicKey(), $this->clock->now());
-
-        $this->subscription = $this->transport->subscribe($filter, $relays, $this);
+        $this->listenOn($relays);
     }
 
     #[Override]
     public function stop(): void
     {
-        $this->subscription?->cancel();
-        $this->subscription = null;
+        foreach ($this->subscriptions as $subscription) {
+            $subscription->cancel();
+        }
+
+        $this->subscriptions = [];
         $this->session = null;
         $this->notifyQueueChanged();
+    }
+
+    #[Override]
+    public function acceptNostrConnect(NostrConnectUrl $url, AppId $appId): bool
+    {
+        $session = $this->session;
+
+        if (null === $session || !$this->pair($url->getClientPubkey(), $appId, $url->getRelays())) {
+            return false;
+        }
+
+        $this->respond($session, $url->getClientPubkey(), Nip46Response::result(RequestId::generate(), (string) $url->getSecret()));
+
+        return true;
+    }
+
+    #[Override]
+    public function restorePairing(PublicKey $client, AppId $appId, RelayUrlCollection $relays): bool
+    {
+        return $this->pair($client, $appId, $relays);
+    }
+
+    private function pair(PublicKey $client, AppId $appId, RelayUrlCollection $relays): bool
+    {
+        $session = $this->session;
+
+        if (null === $session) {
+            return false;
+        }
+
+        $session->recordRelays($client, $relays);
+        $session->authenticate($client, $appId);
+
+        $this->listenOn($session->startListeningOn($relays));
+
+        return true;
+    }
+
+    private function listenOn(RelayUrlCollection $relays): void
+    {
+        if ($relays->isEmpty()) {
+            return;
+        }
+
+        $filter = Nip46FilterFactory::addressedTo($this->signer->publicKey(), $this->clock->now());
+
+        $this->subscriptions[] = $this->transport->subscribe($filter, $relays, $this);
+    }
+
+    #[Override]
+    public function publicKey(): PublicKey
+    {
+        return $this->signer->publicKey();
     }
 
     #[Override]
@@ -103,10 +166,10 @@ final class Nip46Bunker implements Nip46BunkerInterface, Nip46EventListenerInter
     }
 
     #[Override]
-    public function getPending(): PendingSignRequestCollection
+    public function getPending(): PendingRequestCollection
     {
         if (null === $this->session) {
-            return new PendingSignRequestCollection();
+            return new PendingRequestCollection();
         }
 
         return $this->session->pending()->sortedByReceivedAtDescending();
@@ -115,17 +178,17 @@ final class Nip46Bunker implements Nip46BunkerInterface, Nip46EventListenerInter
     #[Override]
     public function approve(EventId $id): bool
     {
-        return $this->answer($id, $this->signResponse(...));
+        return $this->answer($id, fn (PendingRequest $request): Nip46Response => $request->getDetail()->answer($request->getRequestId(), $this->signer, $this->clock->now()));
     }
 
     #[Override]
     public function reject(EventId $id): bool
     {
-        return $this->answer($id, static fn (PendingSignRequest $request): Nip46Response => Nip46Response::failure($request->getRequestId(), 'user rejected'));
+        return $this->answer($id, static fn (PendingRequest $request): Nip46Response => Nip46Response::failure($request->getRequestId(), 'user rejected'));
     }
 
     /**
-     * @param callable(PendingSignRequest): Nip46Response $decide
+     * @param callable(PendingRequest): Nip46Response $decide
      */
     private function answer(EventId $id, callable $decide): bool
     {
@@ -173,162 +236,78 @@ final class Nip46Bunker implements Nip46BunkerInterface, Nip46EventListenerInter
             return;
         }
 
-        $this->dispatch($session, $event, $request);
+        $this->dispatch($session, new IncomingRequest($event->getId(), $peer, $request));
     }
 
-    private function dispatch(BunkerSession $session, Event $event, Nip46Request $request): void
+    private function dispatch(BunkerSession $session, IncomingRequest $incoming): void
     {
-        $clientPubkey = $event->getPubkey();
-        $method = Nip46Method::tryFrom($request->getMethod());
+        $clientPubkey = $incoming->getClientPubkey();
+        $method = Nip46Method::tryFrom($incoming->getMethod());
 
         if ((null === $method || !$method->allowsUnauthenticated()) && !$session->isAuthenticated($clientPubkey)) {
-            $this->respond($session, $clientPubkey, Nip46Response::failure($request->getId(), 'not connected'));
+            $this->respond($session, $clientPubkey, Nip46Response::failure($incoming->getId(), 'not connected'));
 
             return;
         }
 
-        if ($method instanceof Nip46Method) {
-            match ($method) {
-                Nip46Method::Connect => $this->handleConnect($session, $clientPubkey, $request),
-                Nip46Method::Ping => $this->handlePing($session, $clientPubkey, $request),
-                Nip46Method::GetPublicKey => $this->handleGetPublicKey($session, $clientPubkey, $request),
-                Nip46Method::SwitchRelays => $this->reportFixedRelaySet($session, $clientPubkey, $request),
-                Nip46Method::Logout => $this->handleLogout($session, $clientPubkey, $request),
-                Nip46Method::SignEvent => $this->queueSignRequest($session, $event, $request),
-            };
+        if (null === $method) {
+            $this->respond($session, $clientPubkey, Nip46Response::failure($incoming->getId(), 'unsupported method: '.$incoming->getMethod()));
 
             return;
         }
 
-        $crypto = Nip46CryptoMethod::tryFrom($request->getMethod());
-
-        if ($crypto instanceof Nip46CryptoMethod) {
-            $response = $this->cryptoResponse($crypto, $request);
-            $this->respond($session, $clientPubkey, $response);
-            $this->recordAnswer($session->appIdFor($clientPubkey), $request, $response);
-
-            return;
-        }
-
-        $this->respond($session, $clientPubkey, Nip46Response::failure($request->getId(), 'unsupported method: '.$request->getMethod()));
+        match ($method) {
+            Nip46Method::Connect => $this->handleConnect($session, $incoming),
+            Nip46Method::Ping => $this->answerNow($session, $incoming, Nip46Response::result($incoming->getId(), 'pong')),
+            Nip46Method::SwitchRelays => $this->reportRelaySet($session, $incoming),
+            Nip46Method::Logout => $this->handleLogout($session, $incoming),
+            Nip46Method::GetPublicKey => $this->decide($session, $incoming, new GetPublicKeyDetail()),
+            Nip46Method::SignEvent => $this->decide($session, $incoming, SignEventDetail::tryFromWire($incoming->param(0)) ?? Nip46Response::failure($incoming->getId(), 'invalid event')),
+            Nip46Method::Nip44Encrypt, Nip46Method::Nip44Decrypt,
+            Nip46Method::Nip04Encrypt, Nip46Method::Nip04Decrypt => $this->decide($session, $incoming, CryptoDetail::tryFromWire($method, $incoming->param(0), $incoming->param(1)) ?? Nip46Response::failure($incoming->getId(), 'invalid params')),
+        };
     }
 
-    private function handlePing(BunkerSession $session, PublicKey $clientPubkey, Nip46Request $request): void
+    // Deliberate: an ungranted capability is queued for a human decision, never refused — see ADR-0017
+    private function decide(BunkerSession $session, IncomingRequest $incoming, PendingRequestDetailInterface|Nip46Response $detail): void
     {
-        $response = Nip46Response::result($request->getId(), 'pong');
-        $this->respond($session, $clientPubkey, $response);
-        $this->recordAnswer($session->appIdFor($clientPubkey), $request, $response);
-    }
-
-    private function handleGetPublicKey(BunkerSession $session, PublicKey $clientPubkey, Nip46Request $request): void
-    {
-        $response = Nip46Response::result($request->getId(), $this->signer->publicKey()->toHex());
-        $this->respond($session, $clientPubkey, $response);
-        $this->recordAnswer($session->appIdFor($clientPubkey), $request, $response);
-    }
-
-    // Deliberate: the relay set is fixed at start; report the unchanged set rather than switching — see ADR-0004.
-    private function reportFixedRelaySet(BunkerSession $session, PublicKey $clientPubkey, Nip46Request $request): void
-    {
-        $relays = JsonWireFormat::encode($session->getRelays()->toStrings(), JsonWireFormat::MESSAGE);
-
-        $response = Nip46Response::result($request->getId(), $relays);
-        $this->respond($session, $clientPubkey, $response);
-        $this->recordAnswer($session->appIdFor($clientPubkey), $request, $response);
-    }
-
-    private function handleLogout(BunkerSession $session, PublicKey $clientPubkey, Nip46Request $request): void
-    {
+        $clientPubkey = $incoming->getClientPubkey();
         $appId = $session->appIdFor($clientPubkey);
 
-        $response = Nip46Response::result($request->getId(), 'ack');
-        $this->respond($session, $clientPubkey, $response);
-        $this->recordAnswer($appId, $request, $response);
+        if ($detail instanceof Nip46Response) {
+            $this->respond($session, $clientPubkey, $detail);
 
-        $session->deauthenticate($clientPubkey);
-    }
-
-    private function handleConnect(BunkerSession $session, PublicKey $clientPubkey, Nip46Request $request): void
-    {
-        $requestedSigner = $request->param(0);
-
-        if (null !== $requestedSigner && '' !== $requestedSigner) {
-            $parsed = PublicKey::tryFromHex($requestedSigner);
-
-            if (null === $parsed || !$parsed->equals($this->signer->publicKey())) {
-                $this->respond($session, $clientPubkey, Nip46Response::failure($request->getId(), 'invalid signer'));
-
-                return;
-            }
+            return;
         }
-
-        $appId = $this->authenticator->authenticate(ConnectSecret::tryFromString($request->param(1) ?? ''));
 
         if (null === $appId) {
-            $this->respond($session, $clientPubkey, Nip46Response::failure($request->getId(), 'invalid secret'));
+            $this->respond($session, $clientPubkey, Nip46Response::failure($incoming->getId(), 'not connected'));
 
             return;
         }
 
-        $session->authenticate($clientPubkey, $appId);
+        if (!$this->authoriser->isAuthorised($appId, $detail->getPermission())) {
+            $this->queue($session, new PendingRequest(
+                id: $incoming->getCarrierId(),
+                requestId: $incoming->getId(),
+                clientPubkey: $clientPubkey,
+                receivedAt: $this->clock->now(),
+                detail: $detail,
+                appId: $appId,
+            ));
 
-        $response = Nip46Response::result($request->getId(), 'ack');
+            return;
+        }
+
+        $response = $detail->answer($incoming->getId(), $this->signer, $this->clock->now());
         $this->respond($session, $clientPubkey, $response);
-        $this->recordAnswer($appId, $request, $response);
+        $this->recordAnswer($appId, $detail, $response);
     }
 
-    private function cryptoResponse(Nip46CryptoMethod $crypto, Nip46Request $request): Nip46Response
+    private function queue(BunkerSession $session, PendingRequest $pending): void
     {
-        $peerHex = $request->param(0);
-        $payload = $request->param(1);
-
-        $peer = null === $peerHex ? null : PublicKey::tryFromHex($peerHex);
-
-        if (null === $peer || null === $payload) {
-            return Nip46Response::failure($request->getId(), 'invalid params');
-        }
-
-        if ($crypto->isEncrypt()) {
-            // Deliberate: nip44_encrypt/nip04_encrypt encrypt untrusted client plaintext; a cipher failure is answered to the waiting client as a protocol error, not thrown — see ADR-0003.
-            try {
-                return Nip46Response::result($request->getId(), $this->signer->encrypt($peer, $payload, $crypto->cipher()));
-            } catch (Throwable) {
-                return Nip46Response::failure($request->getId(), 'encryption failed');
-            }
-        }
-
-        $plaintext = $this->signer->decrypt($peer, $payload, $crypto->cipher());
-
-        return null === $plaintext
-            ? Nip46Response::failure($request->getId(), 'decryption failed')
-            : Nip46Response::result($request->getId(), $plaintext);
-    }
-
-    private function queueSignRequest(BunkerSession $session, Event $event, Nip46Request $request): void
-    {
-        $clientPubkey = $event->getPubkey();
-        $rawJson = $request->param(0);
-        $decoded = null === $rawJson ? null : JsonWireFormat::decodeArray($rawJson);
-        $eventToSign = null === $decoded ? null : UnsignedEventInput::tryFromWire($decoded);
-        $appId = $session->appIdFor($clientPubkey);
-
-        if (null === $eventToSign || null === $appId) {
-            $this->respond($session, $clientPubkey, Nip46Response::failure($request->getId(), 'invalid event'));
-
-            return;
-        }
-
-        $queued = $session->queue(new PendingSignRequest(
-            id: $event->getId(),
-            requestId: $request->getId(),
-            clientPubkey: $clientPubkey,
-            receivedAt: $this->clock->now(),
-            eventToSign: $eventToSign,
-            appId: $appId,
-        ));
-
-        if (!$queued) {
-            $this->respond($session, $clientPubkey, Nip46Response::failure($request->getId(), 'too many pending requests'));
+        if (!$session->queue($pending)) {
+            $this->respond($session, $pending->getClientPubkey(), Nip46Response::failure($pending->getRequestId(), 'too many pending requests'));
 
             return;
         }
@@ -336,33 +315,68 @@ final class Nip46Bunker implements Nip46BunkerInterface, Nip46EventListenerInter
         $this->notifyQueueChanged();
     }
 
-    private function signResponse(PendingSignRequest $request): Nip46Response
+    private function answerNow(BunkerSession $session, IncomingRequest $incoming, Nip46Response $response): void
     {
-        $unsigned = $request->getEventToSign()->toRumour($this->signer->publicKey(), $this->clock->now());
-
-        // Deliberate: a signing fault becomes a NIP-46 error response, not a thrown fault — see ADR-0002.
-        try {
-            return Nip46Response::result($request->getRequestId(), $this->signer->sign($unsigned)->toJson());
-        } catch (Throwable) {
-            return Nip46Response::failure($request->getRequestId(), 'signing failed');
-        }
+        $this->respond($session, $incoming->getClientPubkey(), $response);
+        $this->recordAnswer($session->appIdFor($incoming->getClientPubkey()), $incoming->getMethod(), $response);
     }
 
-    private function recordAnswer(?AppId $appId, Nip46Request $request, Nip46Response $response): void
+    // Deliberate: the signer's own relay set is reported, switching nothing — it is the migration hint a client-supplied relay set is answered with — see ADR-0018.
+    private function reportRelaySet(BunkerSession $session, IncomingRequest $incoming): void
+    {
+        $relays = JsonWireFormat::encode($session->getRelays()->toStrings(), JsonWireFormat::MESSAGE);
+
+        $this->answerNow($session, $incoming, Nip46Response::result($incoming->getId(), $relays));
+    }
+
+    private function handleLogout(BunkerSession $session, IncomingRequest $incoming): void
+    {
+        $this->answerNow($session, $incoming, Nip46Response::result($incoming->getId(), 'ack'));
+
+        $session->deauthenticate($incoming->getClientPubkey());
+    }
+
+    private function handleConnect(BunkerSession $session, IncomingRequest $incoming): void
+    {
+        $clientPubkey = $incoming->getClientPubkey();
+        $requestedSigner = $incoming->param(0);
+
+        if (null !== $requestedSigner && '' !== $requestedSigner) {
+            $parsed = PublicKey::tryFromHex($requestedSigner);
+
+            if (null === $parsed || !$parsed->equals($this->signer->publicKey())) {
+                $this->respond($session, $clientPubkey, Nip46Response::failure($incoming->getId(), 'invalid signer'));
+
+                return;
+            }
+        }
+
+        $appId = $this->authenticator->authenticate(ConnectSecret::tryFromString($incoming->param(1) ?? ''));
+
+        if (null === $appId) {
+            $this->respond($session, $clientPubkey, Nip46Response::failure($incoming->getId(), 'invalid secret'));
+
+            return;
+        }
+
+        $session->authenticate($clientPubkey, $appId);
+
+        $this->answerNow($session, $incoming, Nip46Response::result($incoming->getId(), 'ack'));
+    }
+
+    private function recordAnswer(?AppId $appId, PendingRequestDetailInterface|string $subject, Nip46Response $response): void
     {
         if (null === $this->activityListener || null === $appId) {
             return;
         }
 
-        $crypto = Nip46CryptoMethod::tryFrom($request->getMethod());
-        $counterparty = $crypto instanceof Nip46CryptoMethod ? PublicKey::tryFromHex($request->param(0) ?? '') : null;
-        $outcome = null === $response->getError() ? BunkerActivityOutcome::Answered : BunkerActivityOutcome::Failed;
+        $isDetail = $subject instanceof PendingRequestDetailInterface;
 
         $this->activityListener->onActivity(new BunkerActivity(
-            method: $request->getMethod(),
+            method: $isDetail ? $subject->getPermission()->getMethod()->value : $subject,
             appId: $appId,
-            counterparty: $counterparty,
-            outcome: $outcome,
+            counterparty: $isDetail ? $subject->getCounterparty() : null,
+            outcome: null === $response->getError() ? BunkerActivityOutcome::Answered : BunkerActivityOutcome::Failed,
         ));
     }
 
@@ -375,7 +389,7 @@ final class Nip46Bunker implements Nip46BunkerInterface, Nip46EventListenerInter
             return;
         }
 
-        $this->transport->publish($session->getRelays(), $event);
+        $this->transport->publish($session->relaysFor($clientPubkey), $event);
     }
 
     private function degrade(BunkerSession $session, PublicKey $clientPubkey, Nip46Response $response): ?Event

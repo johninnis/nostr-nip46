@@ -15,7 +15,6 @@ use Innis\Nostr\Nip46\Application\Port\Nip46PendingResponsesInterface;
 use Innis\Nostr\Nip46\Application\Port\Nip46SubscriptionInterface;
 use Innis\Nostr\Nip46\Application\Port\Nip46TransportInterface;
 use Innis\Nostr\Nip46\Domain\Entity\ClientSession;
-use Innis\Nostr\Nip46\Domain\Enum\Nip46CryptoMethod;
 use Innis\Nostr\Nip46\Domain\Enum\Nip46Method;
 use Innis\Nostr\Nip46\Domain\Factory\Nip46FilterFactory;
 use Innis\Nostr\Nip46\Domain\Failure\Nip46Failure;
@@ -123,25 +122,25 @@ final class Nip46Client implements Nip46ClientInterface, Nip46EventListenerInter
     #[Override]
     public function nip44Encrypt(PublicKey $peer, string $plaintext, float $timeoutSeconds = self::DEFAULT_TIMEOUT_SECONDS): string|Nip46Failure
     {
-        return $this->request(Nip46CryptoMethod::Nip44Encrypt, [$peer->toHex(), $plaintext], $timeoutSeconds);
+        return $this->request(Nip46Method::Nip44Encrypt, [$peer->toHex(), $plaintext], $timeoutSeconds);
     }
 
     #[Override]
     public function nip44Decrypt(PublicKey $peer, string $ciphertext, float $timeoutSeconds = self::DEFAULT_TIMEOUT_SECONDS): string|Nip46Failure
     {
-        return $this->request(Nip46CryptoMethod::Nip44Decrypt, [$peer->toHex(), $ciphertext], $timeoutSeconds);
+        return $this->request(Nip46Method::Nip44Decrypt, [$peer->toHex(), $ciphertext], $timeoutSeconds);
     }
 
     #[Override]
     public function nip04Encrypt(PublicKey $peer, string $plaintext, float $timeoutSeconds = self::DEFAULT_TIMEOUT_SECONDS): string|Nip46Failure
     {
-        return $this->request(Nip46CryptoMethod::Nip04Encrypt, [$peer->toHex(), $plaintext], $timeoutSeconds);
+        return $this->request(Nip46Method::Nip04Encrypt, [$peer->toHex(), $plaintext], $timeoutSeconds);
     }
 
     #[Override]
     public function nip04Decrypt(PublicKey $peer, string $ciphertext, float $timeoutSeconds = self::DEFAULT_TIMEOUT_SECONDS): string|Nip46Failure
     {
-        return $this->request(Nip46CryptoMethod::Nip04Decrypt, [$peer->toHex(), $ciphertext], $timeoutSeconds);
+        return $this->request(Nip46Method::Nip04Decrypt, [$peer->toHex(), $ciphertext], $timeoutSeconds);
     }
 
     #[Override]
@@ -202,7 +201,7 @@ final class Nip46Client implements Nip46ClientInterface, Nip46EventListenerInter
     /**
      * @param list<string> $params
      */
-    private function request(Nip46Method|Nip46CryptoMethod $method, array $params, float $timeoutSeconds): string|Nip46Failure
+    private function request(Nip46Method $method, array $params, float $timeoutSeconds): string|Nip46Failure
     {
         $session = $this->session
             ?? throw new LogicException('Client is not connected to a bunker; connect() first');

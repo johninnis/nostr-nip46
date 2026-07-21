@@ -21,6 +21,12 @@ final class RecordingTransport implements Nip46TransportInterface
     /** @var list<Event> */
     public array $published = [];
 
+    /** @var list<list<string>> */
+    public array $subscribedRelays = [];
+
+    /** @var list<list<string>> */
+    public array $publishedTo = [];
+
     private ?Nip46EventListenerInterface $listener = null;
 
     #[Override]
@@ -32,6 +38,7 @@ final class RecordingTransport implements Nip46TransportInterface
         $this->filter = $filter;
         $this->relays = $relays;
         $this->listener = $listener;
+        $this->subscribedRelays[] = $relays->toStrings();
 
         return new RecordingSubscription($this);
     }
@@ -40,6 +47,15 @@ final class RecordingTransport implements Nip46TransportInterface
     public function publish(RelayUrlCollection $relays, Event $event): void
     {
         $this->published[] = $event;
+        $this->publishedTo[] = $relays->toStrings();
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function lastPublishedTo(): array
+    {
+        return [] === $this->publishedTo ? [] : $this->publishedTo[count($this->publishedTo) - 1];
     }
 
     public function deliver(Event $event): void

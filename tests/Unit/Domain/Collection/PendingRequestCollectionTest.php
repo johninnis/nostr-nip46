@@ -6,21 +6,22 @@ namespace Innis\Nostr\Nip46\Tests\Unit\Domain\Collection;
 
 use Innis\Nostr\Core\Domain\ValueObject\Identity\EventId;
 use Innis\Nostr\Core\Domain\ValueObject\Timestamp;
-use Innis\Nostr\Nip46\Domain\Collection\PendingSignRequestCollection;
+use Innis\Nostr\Nip46\Domain\Collection\PendingRequestCollection;
 use Innis\Nostr\Nip46\Domain\ValueObject\AppId;
-use Innis\Nostr\Nip46\Domain\ValueObject\PendingSignRequest;
+use Innis\Nostr\Nip46\Domain\ValueObject\PendingRequest;
 use Innis\Nostr\Nip46\Domain\ValueObject\RequestId;
+use Innis\Nostr\Nip46\Domain\ValueObject\SignEventDetail;
 use Innis\Nostr\Nip46\Domain\ValueObject\UnsignedEventInput;
 use Innis\Nostr\Nip46\Tests\Support\TestKeys;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
-final class PendingSignRequestCollectionTest extends TestCase
+final class PendingRequestCollectionTest extends TestCase
 {
     public function testFindByIdReturnsTheMatchingRequest(): void
     {
         $target = self::request('r2', 1_700_000_100);
-        $collection = new PendingSignRequestCollection([
+        $collection = new PendingRequestCollection([
             self::request('r1', 1_700_000_000),
             $target,
         ]);
@@ -30,21 +31,21 @@ final class PendingSignRequestCollectionTest extends TestCase
 
     public function testFindByIdReturnsNullForAnUnknownId(): void
     {
-        $collection = new PendingSignRequestCollection([self::request('r1', 1_700_000_000)]);
+        $collection = new PendingRequestCollection([self::request('r1', 1_700_000_000)]);
 
         $this->assertNull($collection->findById(self::carrierId('missing')));
     }
 
     public function testSortsTheNewestRequestFirst(): void
     {
-        $collection = new PendingSignRequestCollection([
+        $collection = new PendingRequestCollection([
             self::request('older', 1_700_000_000),
             self::request('newest', 1_700_000_200),
             self::request('middle', 1_700_000_100),
         ]);
 
         $sorted = array_map(
-            static fn (PendingSignRequest $request): string => (string) $request->getRequestId(),
+            static fn (PendingRequest $request): string => (string) $request->getRequestId(),
             $collection->sortedByReceivedAtDescending()->toArray(),
         );
 
@@ -53,7 +54,7 @@ final class PendingSignRequestCollectionTest extends TestCase
 
     public function testSortingLeavesTheOriginalCollectionUntouched(): void
     {
-        $collection = new PendingSignRequestCollection([
+        $collection = new PendingRequestCollection([
             self::request('older', 1_700_000_000),
             self::request('newer', 1_700_000_100),
         ]);
@@ -63,12 +64,12 @@ final class PendingSignRequestCollectionTest extends TestCase
         $this->assertSame('older', (string) $collection->toArray()[0]->getRequestId());
     }
 
-    private static function request(string $requestId, int $receivedAt): PendingSignRequest
+    private static function request(string $requestId, int $receivedAt): PendingRequest
     {
         $eventToSign = UnsignedEventInput::tryFromWire(['kind' => 1, 'content' => 'gm'])
             ?? throw new RuntimeException('Invalid fixture event input');
 
-        return new PendingSignRequest(self::carrierId($requestId), self::requestId($requestId), TestKeys::clientPubkey(), Timestamp::fromInt($receivedAt), $eventToSign, AppId::fromString('demo-app'));
+        return new PendingRequest(self::carrierId($requestId), self::requestId($requestId), TestKeys::clientPubkey(), Timestamp::fromInt($receivedAt), new SignEventDetail($eventToSign), AppId::fromString('demo-app'));
     }
 
     private static function carrierId(string $seed): EventId

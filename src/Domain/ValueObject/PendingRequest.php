@@ -8,7 +8,7 @@ use Innis\Nostr\Core\Domain\ValueObject\Identity\EventId;
 use Innis\Nostr\Core\Domain\ValueObject\Identity\PublicKey;
 use Innis\Nostr\Core\Domain\ValueObject\Timestamp;
 
-final readonly class PendingSignRequest
+final readonly class PendingRequest
 {
     // Deliberate: two ids by design — the carrier event id is the queue identity; the client-chosen request id only correlates the response — see ADR-0012
     public function __construct(
@@ -16,7 +16,7 @@ final readonly class PendingSignRequest
         private RequestId $requestId,
         private PublicKey $clientPubkey,
         private Timestamp $receivedAt,
-        private UnsignedEventInput $eventToSign,
+        private PendingRequestDetailInterface $detail,
         private AppId $appId,
     ) {
     }
@@ -46,8 +46,8 @@ final readonly class PendingSignRequest
         return $this->receivedAt;
     }
 
-    public function getEventToSign(): UnsignedEventInput
+    public function getDetail(): PendingRequestDetailInterface
     {
-        return $this->eventToSign;
+        return $this->detail;
     }
 }

@@ -18,6 +18,7 @@ use Innis\Nostr\Nip46\Application\Service\Nip46Bunker;
 use Innis\Nostr\Nip46\Domain\Enum\EnvelopeCipher;
 use Innis\Nostr\Nip46\Infrastructure\Crypto\LocalNip46Signer;
 use Innis\Nostr\Nip46\Tests\Support\FakeAuthenticator;
+use Innis\Nostr\Nip46\Tests\Support\FakeAuthoriser;
 use Innis\Nostr\Nip46\Tests\Support\FixedClock;
 use Innis\Nostr\Nip46\Tests\Support\RecordingTransport;
 use PHPUnit\Framework\Attributes\IgnoreDeprecations;
@@ -41,7 +42,7 @@ final class Nip46BunkerIntegrationTest extends TestCase
         $this->clientParty = LocalNip46Signer::create(PrivateKey::generate());
         $this->clock = new FixedClock(1_700_000_000);
 
-        $this->bunker = new Nip46Bunker($this->transport, $this->bunkerParty, new FakeAuthenticator(self::SECRET), $this->clock);
+        $this->bunker = new Nip46Bunker($this->transport, $this->bunkerParty, new FakeAuthenticator(self::SECRET), FakeAuthoriser::grantingEverythingButSigning(), $this->clock);
         $this->bunker->start($this->relays());
     }
 

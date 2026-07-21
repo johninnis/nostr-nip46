@@ -8,8 +8,8 @@ Both sides of [NIP-46](https://github.com/nostr-protocol/nips/blob/master/46.md)
 
 - the **bunker** (`Nip46Bunker`) — a process that holds a key and answers `connect` /
   `get_public_key` / `sign_event` / `nip44_*` / `nip04_*` requests that Nostr apps send over a relay.
-  `sign_event` requests are held in a queue for an explicit approve/reject decision, so a policy layer
-  or a human stays in the loop; everything else is answered automatically.
+  A request the app was granted is answered straight away; anything else is held in a queue for an
+  explicit approve/reject decision, so a policy layer or a human stays in the loop.
 - the **client** (`Nip46Client`) — the app side that pairs with a `bunker://` URL, asks the remote
   signer for the user's public key, and has events signed on the user's behalf.
 
@@ -35,26 +35,35 @@ is relay-pool-agnostic and the protocol logic is tested entirely against in-memo
   `Nip46Failure` values, never exceptions.
 - **Per-app attribution** - the authenticator maps a secret to an opaque app id, and every queued request
   carries it, so a host can label requests and apply per-app policy.
-- **Approval queue** - `sign_event` requests are queued and answered only when the host calls `approve`
-  or `reject`; a listener fires whenever the queue changes. Each queued request is identified by the
+- **Per-app permissions** - an injected authoriser decides, per request, whether an app's grants cover
+  it, using the spec's own `method[:params]` vocabulary as a `Permission` value object. A granted
+  request is answered immediately; an ungranted one is **queued for the host to decide**, never refused.
+- **Approval queue** - any request the app was not granted — `sign_event`, `get_public_key` or the
+  `nip04_*` / `nip44_*` operations — is queued and answered only when the host calls `approve` or
+  `reject`; a listener fires whenever the queue changes. Each queued request is identified by the
   id of the event that carried it, so concurrent clients reusing the same request id can never
-  displace each other. The queue is bounded: past capacity a further `sign_event` is answered with a
+  displace each other. The queue is bounded: past capacity a further request is answered with a
   `too many pending requests` error rather than queued silently.
 - **Activity audit** - an optional activity listener is notified of every request the bunker answers on
-  its own — `connect`, `get_public_key`, `switch_relays`, `logout`, and the `nip04_*` / `nip44_*`
-  operations — with the method, the `AppId` it was answered for, the counterparty public key of a crypto
-  operation, and an `Answered` / `Failed` outcome. Queued `sign_event` requests are excluded: the host
-  records those at its own approve/reject decision.
+  its own, with the method, the `AppId` it was answered for, the counterparty public key of a crypto
+  operation, and an `Answered` / `Failed` outcome. Queued requests are excluded: the host records those
+  at its own approve/reject decision.
 - **NIP-44 with NIP-04 fallback** - each peer's cipher is detected on first contact and reused for
   replies, in both roles. NIP-04 is unauthenticated and deprecated upstream; the fallback exists only for
   older counterparties.
-- **`bunker://` URLs** - parsed and formatted by a single value object.
-- **Bunker-initiated pairing only** - every pairing starts from a `bunker://` URL minted by the
-  signer. The client-initiated `nostrconnect://` flow (a web page minting a URI for a signer to dial
-  in to) and the optional `perms` / client-metadata arguments to `connect` are not implemented: the
-  bunker ignores them when sent, and the client does not send them. The relay set is likewise fixed
-  for the life of a session on both sides - the bunker answers `switch_relays` with its unchanged
-  set, and the client does not poll it to follow a signer's relay migrations.
+- **`bunker://` and `nostrconnect://` URLs** - both pairing directions, parsed and formatted by value
+  objects sharing one query parser. A bunker-initiated pairing starts from a `bunker://` URL the signer
+  mints; a client-initiated one starts from a `nostrconnect://` URL the client mints, which the host
+  hands to `acceptNostrConnect` — the bunker then listens on the client's own relays, echoes the URL's
+  secret to it, and treats it as connected without any `connect` request. `restorePairing` re-establishes
+  such a pairing after a restart.
+- **Client-supplied relays** - a client-initiated pairing's relays are recorded per client and published
+  to alongside the signer's own, so a client works whether or not it honours the `switch_relays`
+  migration hint (which reports the signer's own set and switches nothing).
+- **Client metadata is a hint, never a grant** - the `name` / `url` / `image` / `perms` of a
+  `nostrconnect://` URL are parsed and handed to the host to display and decide on. The bunker never
+  authorises anything from them, and the optional `perms` / metadata arguments to a `connect` request
+  are ignored. The client role does not send them.
 - **Transport-agnostic** - the one relay-facing surface is the `Nip46TransportInterface` port, shared by
   both roles; wire it to any relay client (for example `innis/nostr-client`).
 - **Ready-made signer** - `LocalNip46Signer` implements the signing port over `innis/nostr-core`'s
@@ -81,7 +90,7 @@ composer require innis/nostr-nip46
 
 ## Running a bunker
 
-Provide three things and the bunker handles the protocol.
+Provide four things and the bunker handles the protocol.
 
 **1. A signer** — `LocalNip46Signer` for a key held in process (for a self-hosted signer, the key
 decrypted from a NIP-49 `ncryptsec` at unlock), or your own `Nip46SignerInterface` implementation over
@@ -105,25 +114,34 @@ use Innis\Nostr\Core\Domain\Collection\RelayUrlCollection;
 use Innis\Nostr\Core\Infrastructure\Time\SystemClock;
 use Innis\Nostr\Nip46\Application\Service\Nip46Bunker;
 
-$bunker = new Nip46Bunker($transport, $signer, $authenticator, new SystemClock());
+$bunker = new Nip46Bunker($transport, $signer, $authenticator, $authoriser, new SystemClock());
 
 $bunker->start($relays);                            // $relays: RelayUrlCollection
 echo $bunker->bunkerUrlFor($appSecret);             // $appSecret: ConnectSecret; bunker://<pubkey>?relay=...&secret=...
 
+// Or accept a URL the client minted, pairing it to an app you decided on:
+$bunker->acceptNostrConnect(NostrConnectUrl::tryFromString($pasted), $appId);
+
 // Queued requests carry the app id the client authenticated as: $request->getAppId().
-// Decide on queued sign_event requests when they arrive:
+// Decide on them when they arrive:
 $bunker->setQueueListener($yourPolicyOrUiListener);
 foreach ($bunker->getPending() as $request) {
-    // inspect $request->getEventToSign(), then:
+    // inspect $request->getDetail() — a SignEventDetail, CryptoDetail or GetPublicKeyDetail — then:
     $bunker->approve($request->getId());            // or $bunker->reject($request->getId());
 }
 
 $bunker->stop();
 ```
 
-`connect`, `ping`, `get_public_key`, `switch_relays` (which reports the session's fixed relay set),
-`logout`, and the four `nip04_*` / `nip44_*` methods are answered automatically. Only `sign_event` waits
-for `approve` / `reject`.
+**4. An authoriser** — implement `Nip46AuthoriserInterface` to say whether an app's grants cover a
+`Permission` (`sign_event:1`, `nip44_decrypt`, …). It decides *answer now* versus *ask the host*, never
+*refuse*: a request the app was not granted is queued for `approve` / `reject` exactly as a signing
+request is. `PermissionCollection::grantable()` lists every permission the bunker will ask about, and
+`fromPermsString` / `toPermsString` parse and render the spec's comma-separated form.
+
+`connect`, `ping`, `switch_relays` (which reports the signer's own relay set) and `logout` carry no
+capability and are always answered. `get_public_key`, `sign_event` and the four `nip04_*` / `nip44_*`
+methods are answered when granted, and queued when not.
 
 For an audit trail of what each connected app did, register an activity listener — the bunker's optional
 observability hook, mirroring `setQueueListener`:
@@ -132,10 +150,10 @@ observability hook, mirroring `setQueueListener`:
 $bunker->setActivityListener($yourAuditSink); // notified as each autonomous request is answered
 ```
 
-It receives a `BunkerActivity` for every request the bunker answers on its own (the methods listed
-above), carrying the method name, the resolved `AppId`, the counterparty public key of a crypto
-operation, and an `Answered` / `Failed` outcome. Queued `sign_event` requests never reach it — record
-those where you decide them, at `approve` / `reject` (see `docs/adr/0014`).
+It receives a `BunkerActivity` for every request the bunker answers on its own, carrying the method
+name, the resolved `AppId`, the counterparty public key of a crypto operation, and an `Answered` /
+`Failed` outcome. A queued request never reaches it — record those where you decide them, at `approve` /
+`reject` (see `docs/adr/0020`).
 
 ---
 
@@ -207,7 +225,7 @@ php examples/remote_signer.php
 
 ## Architecture
 
-- **Domain** - the protocol vocabulary (`Nip46Method`, `Nip46CryptoMethod`, `Nip46Request`,
+- **Domain** - the protocol vocabulary (`Nip46Method`, `Permission`, `Nip46Request`,
   `Nip46Response`, `UnsignedEventInput`, `PendingSignRequest`, `BunkerUrl`, `EnvelopeCipher`,
   `Nip46Failure`), the `BunkerSession` and `ClientSession` state machines with their shared
   `SeenEventIds` redelivery guard, the `Nip46SignerInterface` capability, the subscription filter

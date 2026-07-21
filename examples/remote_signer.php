@@ -15,6 +15,7 @@ use Innis\Nostr\Core\Infrastructure\Time\SystemClock;
 use Innis\Nostr\Nip46\Application\Port\BunkerQueueListenerInterface;
 use Innis\Nostr\Nip46\Application\Port\Nip46ActivityListenerInterface;
 use Innis\Nostr\Nip46\Application\Port\Nip46AuthenticatorInterface;
+use Innis\Nostr\Nip46\Application\Port\Nip46AuthoriserInterface;
 use Innis\Nostr\Nip46\Application\Port\Nip46EventListenerInterface;
 use Innis\Nostr\Nip46\Application\Port\Nip46PendingResponseInterface;
 use Innis\Nostr\Nip46\Application\Port\Nip46PendingResponsesInterface;
@@ -22,11 +23,13 @@ use Innis\Nostr\Nip46\Application\Port\Nip46SubscriptionInterface;
 use Innis\Nostr\Nip46\Application\Port\Nip46TransportInterface;
 use Innis\Nostr\Nip46\Application\Service\Nip46Bunker;
 use Innis\Nostr\Nip46\Application\Service\Nip46Client;
+use Innis\Nostr\Nip46\Domain\Collection\PermissionCollection;
 use Innis\Nostr\Nip46\Domain\Failure\Nip46Failure;
 use Innis\Nostr\Nip46\Domain\ValueObject\AppId;
 use Innis\Nostr\Nip46\Domain\ValueObject\BunkerActivity;
 use Innis\Nostr\Nip46\Domain\ValueObject\ConnectSecret;
 use Innis\Nostr\Nip46\Domain\ValueObject\Nip46Response;
+use Innis\Nostr\Nip46\Domain\ValueObject\Permission;
 use Innis\Nostr\Nip46\Domain\ValueObject\RequestId;
 use Innis\Nostr\Nip46\Infrastructure\Crypto\LocalNip46Signer;
 
@@ -100,7 +103,23 @@ $authenticator = new class($secret) implements Nip46AuthenticatorInterface {
     }
 };
 
-$bunker = new Nip46Bunker($bunkerTransport, LocalNip46Signer::create(PrivateKey::generate()), $authenticator, $clock);
+/* Everything but signing is granted; an ungranted sign_event is queued for the operator below. */
+$authoriser = new class implements Nip46AuthoriserInterface {
+    private readonly PermissionCollection $granted;
+
+    public function __construct()
+    {
+        $this->granted = PermissionCollection::fromPermsString('get_public_key,nip44_encrypt,nip44_decrypt');
+    }
+
+    #[Override]
+    public function isAuthorised(AppId $appId, Permission $permission): bool
+    {
+        return $this->granted->allows($permission);
+    }
+};
+
+$bunker = new Nip46Bunker($bunkerTransport, LocalNip46Signer::create(PrivateKey::generate()), $authenticator, $authoriser, $clock);
 $bunker->start(new RelayUrlCollection([$relay]));
 
 /* A stand-in operator that approves every queued signing request on sight. */

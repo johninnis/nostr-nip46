@@ -12,8 +12,9 @@ use Innis\Nostr\Core\Domain\ValueObject\Timestamp;
 use Innis\Nostr\Nip46\Domain\Entity\BunkerSession;
 use Innis\Nostr\Nip46\Domain\Enum\EnvelopeCipher;
 use Innis\Nostr\Nip46\Domain\ValueObject\AppId;
-use Innis\Nostr\Nip46\Domain\ValueObject\PendingSignRequest;
+use Innis\Nostr\Nip46\Domain\ValueObject\PendingRequest;
 use Innis\Nostr\Nip46\Domain\ValueObject\RequestId;
+use Innis\Nostr\Nip46\Domain\ValueObject\SignEventDetail;
 use Innis\Nostr\Nip46\Domain\ValueObject\UnsignedEventInput;
 use Innis\Nostr\Nip46\Tests\Support\TestKeys;
 use PHPUnit\Framework\TestCase;
@@ -55,6 +56,75 @@ final class BunkerSessionTest extends TestCase
         $session->recordCipher(TestKeys::clientPubkey(), EnvelopeCipher::Nip04);
 
         $this->assertSame(EnvelopeCipher::Nip04, $session->cipherFor(TestKeys::clientPubkey()));
+    }
+
+    public function testAClientWithoutRecordedRelaysUsesTheSessionsOwn(): void
+    {
+        $session = $this->session();
+
+        $this->assertSame(['wss://relay.example.com'], $session->relaysFor(TestKeys::clientPubkey())->toStrings());
+    }
+
+    public function testAClientsRecordedRelaysAreAddedToTheSessionsOwn(): void
+    {
+        $session = $this->session();
+
+        $session->recordRelays(TestKeys::clientPubkey(), RelayUrlCollection::fromStrings(['wss://client.example.com']));
+
+        $this->assertSame(['wss://relay.example.com', 'wss://client.example.com'], $session->relaysFor(TestKeys::clientPubkey())->toStrings());
+    }
+
+    public function testARecordedRelayAlreadyInTheSessionIsNotDuplicated(): void
+    {
+        $session = $this->session();
+
+        $session->recordRelays(TestKeys::clientPubkey(), RelayUrlCollection::fromStrings(['wss://relay.example.com']));
+
+        $this->assertSame(['wss://relay.example.com'], $session->relaysFor(TestKeys::clientPubkey())->toStrings());
+    }
+
+    public function testRecordedRelaysAreScopedToTheirClient(): void
+    {
+        $session = $this->session();
+
+        $session->recordRelays(TestKeys::clientPubkey(), RelayUrlCollection::fromStrings(['wss://client.example.com']));
+
+        $this->assertSame(['wss://relay.example.com'], $session->relaysFor(TestKeys::secondClientPubkey())->toStrings());
+    }
+
+    public function testTheSessionIsAlreadyListeningOnItsOwnRelays(): void
+    {
+        $session = $this->session();
+
+        $this->assertTrue($session->startListeningOn(RelayUrlCollection::fromStrings(['wss://relay.example.com']))->isEmpty());
+    }
+
+    public function testStartListeningOnReturnsOnlyTheRelaysNotYetListenedOn(): void
+    {
+        $session = $this->session();
+
+        $added = $session->startListeningOn(RelayUrlCollection::fromStrings(['wss://relay.example.com', 'wss://client.example.com']));
+
+        $this->assertSame(['wss://client.example.com'], $added->toStrings());
+    }
+
+    public function testARelayIsOnlyEverStartedListeningOnOnce(): void
+    {
+        $session = $this->session();
+        $relays = RelayUrlCollection::fromStrings(['wss://client.example.com']);
+
+        $session->startListeningOn($relays);
+
+        $this->assertTrue($session->startListeningOn($relays)->isEmpty());
+    }
+
+    public function testARepeatedRelayIsReturnedOnceByStartListeningOn(): void
+    {
+        $session = $this->session();
+
+        $added = $session->startListeningOn(RelayUrlCollection::fromStrings(['wss://client.example.com', 'wss://client.example.com']));
+
+        $this->assertSame(['wss://client.example.com'], $added->toStrings());
     }
 
     public function testQueueAndTakeRemovesTheRequest(): void
@@ -126,13 +196,13 @@ final class BunkerSessionTest extends TestCase
         return new BunkerSession(new RelayUrlCollection([$relay]));
     }
 
-    private function pending(string $requestId): PendingSignRequest
+    private function pending(string $requestId): PendingRequest
     {
         $input = UnsignedEventInput::tryFromWire(['kind' => 1]) ?? throw new RuntimeException('input');
         $carrier = EventId::tryFromHex(hash('sha256', $requestId)) ?? throw new RuntimeException('carrier id');
         $id = RequestId::tryFromString($requestId) ?? throw new RuntimeException('request id');
 
-        return new PendingSignRequest($carrier, $id, TestKeys::clientPubkey(), Timestamp::fromInt(1000), $input, AppId::fromString('app-1'));
+        return new PendingRequest($carrier, $id, TestKeys::clientPubkey(), Timestamp::fromInt(1000), new SignEventDetail($input), AppId::fromString('app-1'));
     }
 
     private function clientKey(int $seed): PublicKey

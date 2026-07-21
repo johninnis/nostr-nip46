@@ -6,25 +6,25 @@ namespace Innis\Nostr\Nip46\Domain\Collection;
 
 use Innis\Nostr\Core\Domain\Collection\TypedCollection;
 use Innis\Nostr\Core\Domain\ValueObject\Identity\EventId;
-use Innis\Nostr\Nip46\Domain\ValueObject\PendingSignRequest;
+use Innis\Nostr\Nip46\Domain\ValueObject\PendingRequest;
 use Override;
 
 /**
- * @extends TypedCollection<PendingSignRequest>
+ * @extends TypedCollection<PendingRequest>
  */
-final class PendingSignRequestCollection extends TypedCollection
+final class PendingRequestCollection extends TypedCollection
 {
     #[Override]
     protected function elementType(): string
     {
-        return PendingSignRequest::class;
+        return PendingRequest::class;
     }
 
-    public function findById(EventId $id): ?PendingSignRequest
+    public function findById(EventId $id): ?PendingRequest
     {
         return array_find(
             $this->toArray(),
-            static fn (PendingSignRequest $request): bool => $request->getId()->equals($id),
+            static fn (PendingRequest $request): bool => $request->getId()->equals($id),
         );
     }
 
@@ -34,7 +34,7 @@ final class PendingSignRequestCollection extends TypedCollection
 
         usort(
             $items,
-            static fn (PendingSignRequest $a, PendingSignRequest $b): int => $b->getReceivedAt()->compareTo($a->getReceivedAt()),
+            static fn (PendingRequest $a, PendingRequest $b): int => $b->getReceivedAt()->compareTo($a->getReceivedAt()),
         );
 
         return new self($items);
