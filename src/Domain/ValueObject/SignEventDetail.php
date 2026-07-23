@@ -38,6 +38,12 @@ final readonly class SignEventDetail implements PendingRequestDetailInterface
     }
 
     #[Override]
+    public function getSignEventSummary(): SignEventSummary
+    {
+        return new SignEventSummary($this->eventToSign->getKind(), (string) $this->eventToSign->getContent());
+    }
+
+    #[Override]
     public function answer(RequestId $id, Nip46SignerInterface $signer, Timestamp $now): Nip46Response
     {
         $unsigned = $this->eventToSign->toRumour($signer->publicKey(), $now);

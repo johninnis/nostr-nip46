@@ -26,8 +26,8 @@ use Innis\Nostr\Nip46\Domain\Service\Nip46SignerInterface;
 use Innis\Nostr\Nip46\Domain\ValueObject\AppId;
 use Innis\Nostr\Nip46\Domain\ValueObject\BunkerActivity;
 use Innis\Nostr\Nip46\Domain\ValueObject\BunkerUrl;
+use Innis\Nostr\Nip46\Domain\ValueObject\CipherDetail;
 use Innis\Nostr\Nip46\Domain\ValueObject\ConnectSecret;
-use Innis\Nostr\Nip46\Domain\ValueObject\CryptoDetail;
 use Innis\Nostr\Nip46\Domain\ValueObject\GetPublicKeyDetail;
 use Innis\Nostr\Nip46\Domain\ValueObject\IncomingRequest;
 use Innis\Nostr\Nip46\Domain\ValueObject\Nip46Request;
@@ -263,7 +263,7 @@ final class Nip46Bunker implements Nip46BunkerInterface, Nip46EventListenerInter
             Nip46Method::GetPublicKey => $this->decide($session, $incoming, new GetPublicKeyDetail()),
             Nip46Method::SignEvent => $this->decide($session, $incoming, SignEventDetail::tryFromWire($incoming->param(0)) ?? Nip46Response::failure($incoming->getId(), 'invalid event')),
             Nip46Method::Nip44Encrypt, Nip46Method::Nip44Decrypt,
-            Nip46Method::Nip04Encrypt, Nip46Method::Nip04Decrypt => $this->decide($session, $incoming, CryptoDetail::tryFromWire($method, $incoming->param(0), $incoming->param(1)) ?? Nip46Response::failure($incoming->getId(), 'invalid params')),
+            Nip46Method::Nip04Encrypt, Nip46Method::Nip04Decrypt => $this->decide($session, $incoming, CipherDetail::tryFromWire($method, $incoming->param(0), $incoming->param(1)) ?? Nip46Response::failure($incoming->getId(), 'invalid params')),
         };
     }
 

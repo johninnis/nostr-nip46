@@ -118,7 +118,7 @@ final class Nip46ClientTest extends TestCase
         $this->assertSame(Nip46FailureReason::InvalidResponse, $result->getReason());
     }
 
-    public function testACryptoCallBeforeConnectIsAFault(): void
+    public function testACipherCallBeforeConnectIsAFault(): void
     {
         [$client] = $this->clientWith($this->handshake());
 
@@ -160,7 +160,7 @@ final class Nip46ClientTest extends TestCase
         $this->assertSame('the-plaintext', $result);
     }
 
-    public function testARejectedCryptoCallComesBackAsAFailure(): void
+    public function testARejectedCipherCallComesBackAsAFailure(): void
     {
         $respond = function (array $request): ?array {
             if ('nip44_decrypt' === $request['method']) {

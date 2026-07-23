@@ -16,5 +16,8 @@ interface PendingRequestDetailInterface
 
     public function getPayload(): string;
 
+    // Deliberate: only a sign_event detail summarises its payload for audit — a cipher payload never does — see ADR-0021
+    public function getSignEventSummary(): ?SignEventSummary;
+
     public function answer(RequestId $id, Nip46SignerInterface $signer, Timestamp $now): Nip46Response;
 }

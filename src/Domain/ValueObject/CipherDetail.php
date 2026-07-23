@@ -12,7 +12,7 @@ use Innis\Nostr\Nip46\Domain\Service\Nip46SignerInterface;
 use Override;
 use Throwable;
 
-final readonly class CryptoDetail implements PendingRequestDetailInterface
+final readonly class CipherDetail implements PendingRequestDetailInterface
 {
     private function __construct(
         private Nip46Method $method,
@@ -38,6 +38,13 @@ final readonly class CryptoDetail implements PendingRequestDetailInterface
     public function getCounterparty(): PublicKey
     {
         return $this->counterparty;
+    }
+
+    // Deliberate: a cipher payload is private correspondence and is never summarised for audit — see ADR-0021
+    #[Override]
+    public function getSignEventSummary(): ?SignEventSummary
+    {
+        return null;
     }
 
     #[Override]

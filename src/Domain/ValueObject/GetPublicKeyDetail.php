@@ -31,6 +31,12 @@ final readonly class GetPublicKeyDetail implements PendingRequestDetailInterface
     }
 
     #[Override]
+    public function getSignEventSummary(): ?SignEventSummary
+    {
+        return null;
+    }
+
+    #[Override]
     public function answer(RequestId $id, Nip46SignerInterface $signer, Timestamp $now): Nip46Response
     {
         return Nip46Response::result($id, $signer->publicKey()->toHex());

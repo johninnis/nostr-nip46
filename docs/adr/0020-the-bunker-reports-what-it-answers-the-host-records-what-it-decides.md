@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by ADR-0021
 
 Supersedes ADR-0014.
 

@@ -9,13 +9,14 @@ use Innis\Nostr\Nip46\Domain\Enum\BunkerActivityOutcome;
 use Innis\Nostr\Nip46\Domain\Enum\Nip46Method;
 use Innis\Nostr\Nip46\Domain\ValueObject\AppId;
 use Innis\Nostr\Nip46\Domain\ValueObject\BunkerActivity;
-use Innis\Nostr\Nip46\Domain\ValueObject\CryptoDetail;
+use Innis\Nostr\Nip46\Domain\ValueObject\CipherDetail;
 use Innis\Nostr\Nip46\Domain\ValueObject\GetPublicKeyDetail;
 use Innis\Nostr\Nip46\Domain\ValueObject\IncomingRequest;
 use Innis\Nostr\Nip46\Domain\ValueObject\Nip46Request;
 use Innis\Nostr\Nip46\Domain\ValueObject\Nip46Response;
 use Innis\Nostr\Nip46\Domain\ValueObject\PendingRequestDetailInterface;
 use Innis\Nostr\Nip46\Domain\ValueObject\RequestId;
+use Innis\Nostr\Nip46\Domain\ValueObject\SignEventDetail;
 use Innis\Nostr\Nip46\Tests\Support\TestKeys;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -29,9 +30,9 @@ final class BunkerActivityTest extends TestCase
         $this->assertSame('get_public_key', $activity->getMethod());
     }
 
-    public function testAnActivityForACryptoDetailCarriesTheCounterparty(): void
+    public function testAnActivityForACipherDetailCarriesTheCounterparty(): void
     {
-        $activity = BunkerActivity::forDetail(AppId::fromString('app-1'), $this->cryptoDetail(), $this->answered());
+        $activity = BunkerActivity::forDetail(AppId::fromString('app-1'), $this->cipherDetail(), $this->answered());
 
         $this->assertTrue($activity->getCounterparty()?->equals(TestKeys::clientPubkey()));
     }
@@ -65,9 +66,52 @@ final class BunkerActivityTest extends TestCase
         $this->assertSame('app-7', (string) $activity->getAppId());
     }
 
-    private function cryptoDetail(): PendingRequestDetailInterface
+    public function testAnActivityForASignEventCarriesTheKind(): void
     {
-        return CryptoDetail::tryFromWire(Nip46Method::Nip44Decrypt, TestKeys::clientPubkey()->toHex(), 'ciphertext')
+        $activity = BunkerActivity::forDetail(AppId::fromString('app-1'), $this->signEventDetail(1, 'hello'), $this->answered());
+
+        $this->assertTrue($activity->getEvent()?->getKind()->is(1));
+    }
+
+    public function testAnActivityForASignEventCarriesTheContent(): void
+    {
+        $activity = BunkerActivity::forDetail(AppId::fromString('app-1'), $this->signEventDetail(1, 'hello'), $this->answered());
+
+        $this->assertSame('hello', $activity->getEvent()?->getContent());
+    }
+
+    public function testAnActivityForACipherDetailSummarisesNoEvent(): void
+    {
+        $activity = BunkerActivity::forDetail(AppId::fromString('app-1'), $this->cipherDetail(), $this->answered());
+
+        $this->assertNull($activity->getEvent());
+    }
+
+    public function testAnActivityForAnIdentityDetailSummarisesNoEvent(): void
+    {
+        $activity = BunkerActivity::forDetail(AppId::fromString('app-1'), new GetPublicKeyDetail(), $this->answered());
+
+        $this->assertNull($activity->getEvent());
+    }
+
+    public function testAnActivityForARequestSummarisesNoEvent(): void
+    {
+        $activity = BunkerActivity::forRequest(AppId::fromString('app-1'), $this->incoming('ping'), $this->answered());
+
+        $this->assertNull($activity->getEvent());
+    }
+
+    private function signEventDetail(int $kind, string $content): PendingRequestDetailInterface
+    {
+        $raw = json_encode(['kind' => $kind, 'content' => $content, 'tags' => []]);
+
+        return SignEventDetail::tryFromWire(false === $raw ? null : $raw)
+            ?? throw new RuntimeException('invalid fixture detail');
+    }
+
+    private function cipherDetail(): PendingRequestDetailInterface
+    {
+        return CipherDetail::tryFromWire(Nip46Method::Nip44Decrypt, TestKeys::clientPubkey()->toHex(), 'ciphertext')
             ?? throw new RuntimeException('invalid fixture detail');
     }
 

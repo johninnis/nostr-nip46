@@ -89,7 +89,7 @@ final class Nip46BunkerTest extends TestCase
         $this->assertSame(0, $this->bunker->getPending()->count());
     }
 
-    public function testCryptoMethodBeforeConnectIsRejected(): void
+    public function testCipherMethodBeforeConnectIsRejected(): void
     {
         $this->deliver(['id' => 'e1', 'method' => 'nip44_encrypt', 'params' => [TestKeys::clientPubkey()->toHex(), 'hi']]);
 
@@ -406,7 +406,7 @@ final class Nip46BunkerTest extends TestCase
         $this->assertSame('ping', $this->lastActivity()->getMethod());
     }
 
-    public function testCryptoEncryptRecordsTheCounterparty(): void
+    public function testCipherEncryptRecordsTheCounterparty(): void
     {
         $this->connect();
 
@@ -545,7 +545,7 @@ final class Nip46BunkerTest extends TestCase
         $this->assertSame(2, $this->transport->cancelCount);
     }
 
-    public function testAnUngrantedCryptoRequestIsQueuedRatherThanRefused(): void
+    public function testAnUngrantedCipherRequestIsQueuedRatherThanRefused(): void
     {
         $bunker = $this->bunkerGranting(FakeAuthoriser::grantingNothing());
         $this->connect();
@@ -557,7 +557,7 @@ final class Nip46BunkerTest extends TestCase
         $this->assertCount($publishedBefore, $this->transport->published);
     }
 
-    public function testApprovingAQueuedCryptoRequestAnswersIt(): void
+    public function testApprovingAQueuedCipherRequestAnswersIt(): void
     {
         $bunker = $this->bunkerGranting(FakeAuthoriser::grantingNothing());
         $this->connect();
@@ -568,7 +568,7 @@ final class Nip46BunkerTest extends TestCase
         $this->assertSame('gm', $this->decodeResponse()['result'] ?? null);
     }
 
-    public function testRejectingAQueuedCryptoRequestAnswersUserRejected(): void
+    public function testRejectingAQueuedCipherRequestAnswersUserRejected(): void
     {
         $bunker = $this->bunkerGranting(FakeAuthoriser::grantingNothing());
         $this->connect();
@@ -610,7 +610,40 @@ final class Nip46BunkerTest extends TestCase
         $this->assertSame(1, $bunker->getPending()->count());
     }
 
-    public function testAnAutoAnsweredCryptoRequestIsRecordedAsActivityButAQueuedOneIsNot(): void
+    public function testAnAutoAnsweredSignEventRecordsTheKind(): void
+    {
+        $bunker = $this->bunkerGranting(FakeAuthoriser::granting('sign_event:1'));
+        $bunker->setActivityListener($this->activity);
+        $this->connect();
+
+        $this->deliver(['id' => 's1', 'method' => 'sign_event', 'params' => [(string) json_encode(['kind' => 1, 'content' => 'gm'])]]);
+
+        $this->assertTrue($this->lastActivity()->getEvent()?->getKind()->is(1));
+    }
+
+    public function testAnAutoAnsweredSignEventRecordsTheContent(): void
+    {
+        $bunker = $this->bunkerGranting(FakeAuthoriser::granting('sign_event:1'));
+        $bunker->setActivityListener($this->activity);
+        $this->connect();
+
+        $this->deliver(['id' => 's1', 'method' => 'sign_event', 'params' => [(string) json_encode(['kind' => 1, 'content' => 'gm'])]]);
+
+        $this->assertSame('gm', $this->lastActivity()->getEvent()?->getContent());
+    }
+
+    public function testAnAutoAnsweredCipherRequestSummarisesNoEvent(): void
+    {
+        $bunker = $this->bunkerGranting(FakeAuthoriser::granting('nip44_encrypt'));
+        $bunker->setActivityListener($this->activity);
+        $this->connect();
+
+        $this->deliver(['id' => 'e1', 'method' => 'nip44_encrypt', 'params' => [TestKeys::clientPubkey()->toHex(), 'secret plaintext']]);
+
+        $this->assertNull($this->lastActivity()->getEvent());
+    }
+
+    public function testAnAutoAnsweredCipherRequestIsRecordedAsActivityButAQueuedOneIsNot(): void
     {
         $bunker = $this->bunkerGranting(FakeAuthoriser::grantingNothing());
         $bunker->setActivityListener($this->activity);
