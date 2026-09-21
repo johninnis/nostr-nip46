@@ -16,10 +16,7 @@ We record architecture decisions in immutable, sequentially numbered records und
 
 A record is never edited to change its decision; it is superseded by a later record, and its Status is set to `Superseded by ADR-NNNN`. Revisiting a decision means writing a new record, not rewriting history — the history is the point.
 
-Until the package's first release, the log describes the current design only: a record superseded
-before release is folded into its successor — the successor restated as a standalone record — and
-deleted, and the remaining records are renumbered to keep the sequence contiguous. The supersession
-trail begins at the first release, when outside readers may hold references to published records.
+Until the package's first release, the log describes the current design only: a record superseded before release is folded into its successor — the successor restated as a standalone record — and deleted, and the remaining records are renumbered to keep the sequence contiguous. The supersession trail begins at the first release, when outside readers may hold references to published records.
 
 Where a decision reads like a smell at the call site, the code carries a one-line Chesterton's-Fence comment pointing at the record — `// Deliberate: … — see ADR-NNNN` — backed by a test that fails if the design is undone. The comment, the test, and the record together are what stop a well-meaning refactor.
 
