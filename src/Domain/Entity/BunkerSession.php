@@ -62,9 +62,7 @@ final class BunkerSession
 
     public function startListeningOn(RelayUrlCollection $relays): RelayUrlCollection
     {
-        $known = $this->listeningOn->toStrings();
-
-        $unlistened = RelayUrlCollection::fromStrings(array_values(array_diff($relays->unique()->toStrings(), $known)));
+        $unlistened = $relays->unique()->diff($this->listeningOn);
 
         $this->listeningOn = $this->listeningOn->merge($unlistened);
 
