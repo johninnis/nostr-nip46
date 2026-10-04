@@ -357,15 +357,13 @@ final class Nip46Bunker implements Nip46BunkerInterface, Nip46EventListenerInter
 
         $session->authenticate($clientPubkey);
 
+        // Deliberate: the host is told of the use before the ack is sent, so it has filed the client before the connect activity is recorded — see ADR-0023
         if (null !== $secret) {
             $this->usedSecrets->recordUse($secret, $clientPubkey);
+            $this->secretListener?->onSecretUsed($secret, $clientPubkey);
         }
 
         $this->answerNow($session, $incoming, Nip46Response::result($incoming->getId(), 'ack'));
-
-        if (null !== $secret) {
-            $this->secretListener?->onSecretUsed($secret, $clientPubkey);
-        }
     }
 
     // Deliberate: a used secret is ignored without a reply unless its own client, still connected, repeats it — see ADR-0023

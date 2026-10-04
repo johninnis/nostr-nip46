@@ -26,7 +26,7 @@ The bunker records each secret that establishes a connection, together with the 
 - A later `connect` that presents a used secret gets no reply and changes nothing. The exception is the client that used the secret: while it is still connected, it is answered `ack` again. After it logs out or is evicted, it is ignored like any other client.
 - The record belongs to the `Nip46Bunker`, not the session, so it survives `stop()` and `start()`. It holds up to 10,000 secrets and forgets the oldest past that. It stores a SHA-256 digest of each secret, never the secret itself.
 - `bunkerUrlFor()` returns `null` for a used secret, so the bunker never advertises a URL it will ignore.
-- An optional secret listener, set with `setSecretListener()` like the other observers (ADR-0032), receives the secret and the client's public key once the secret is used. The bunker records the use before it sends `ack`, and notifies the listener after.
+- An optional secret listener, set with `setSecretListener()` like the other observers (ADR-0032), receives the secret and the client's public key once the secret is used. The bunker records the use and tells the listener before it sends `ack`, so the host has filed the client before the `connect` activity is recorded.
 
 Retiring and issuing secrets stays with the host. The bunker's record enforces the rule while the process runs. Keeping it across a restart, or past eviction, needs the host to retire each used secret in its own store.
 

@@ -67,6 +67,7 @@ final readonly class Nip46Request
             return null;
         }
 
+        // Deliberate: an absent params member reads as an empty list, an explicit null is refused — see nostr-adrs ADR-0116
         $rawParams = array_key_exists('params', $value) ? $value['params'] : [];
 
         if (!is_array($rawParams) || !array_is_list($rawParams)) {
