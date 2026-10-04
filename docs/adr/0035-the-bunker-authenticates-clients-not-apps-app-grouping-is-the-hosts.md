@@ -32,3 +32,4 @@ Carried forward from ADR-0015, unchanged: there are exactly two authentication e
 - A multi-app host (hubstr-signer) keeps its model entire: its authenticator accepts any app's live secret, its authoriser maps the client key to the app it paired under, and its audit labels by that mapping. Nothing about per-app secrets or grants moves into or out of the host — only the library stops carrying the label.
 - The client public key is ephemeral per pairing, so a host that wants history grouped across re-pairings must resolve it through its own records — which it already keeps for `restorePairing`.
 - `docs/adr/0014`'s app-id attribution rationale and `docs/adr/0015` survive as history; the live attribution rule is this record.
+- Shared decisions: nostr-adrs ADR-0115 (the client-initiated pairing entry point) and ADR-0117 (the libraries hold no app concept).

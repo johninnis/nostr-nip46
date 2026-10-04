@@ -20,3 +20,4 @@ When a valid challenge arrives and no auth-url listener is registered, the clien
 - The failure carries the URL, so the host can still offer it to the user by other means.
 - A challenge carrying a non-web URL is dropped either way (ADR-0013), so this failure never carries one.
 - A fence at the branch in `Nip46Client::onEvent` points here, and a test pins that a listenerless challenge fails the request instead of timing out.
+- Shared decision: nostr-adrs ADR-0112.
