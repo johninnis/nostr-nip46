@@ -58,7 +58,7 @@ final readonly class CipherDetail implements PendingRequestDetailInterface
                 : Nip46Response::result($id, $plaintext);
         }
 
-        // Deliberate: nip44_encrypt/nip04_encrypt encrypt untrusted client plaintext; a cipher failure is answered to the waiting client as a protocol error, not thrown — see ADR-0003.
+        // Deliberate: nip44_encrypt/nip04_encrypt encrypt untrusted client plaintext; a cipher failure is answered to the waiting client as a protocol error, not thrown — see ADR-0029.
         try {
             return Nip46Response::result($id, $signer->encrypt($this->counterparty, $this->payload, $this->cipher));
         } catch (Throwable) {

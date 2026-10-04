@@ -17,10 +17,13 @@ final class ClientSession
 
     private ?PublicKey $userPublicKey = null;
 
+    private RelayUrlCollection $relays;
+
     public function __construct(
         private readonly BunkerUrl $bunker,
         private readonly SeenEventIds $seenEventIds = new SeenEventIds(),
     ) {
+        $this->relays = $bunker->getRelays();
     }
 
     public function rememberSeen(EventId $eventId): bool
@@ -35,7 +38,20 @@ final class ClientSession
 
     public function getRelays(): RelayUrlCollection
     {
-        return $this->bunker->getRelays();
+        return $this->relays;
+    }
+
+    public function adoptRelays(RelayUrlCollection $relays): bool
+    {
+        $switched = $relays->unique();
+
+        if ($switched->isEmpty() || ($switched->diff($this->relays)->isEmpty() && $this->relays->diff($switched)->isEmpty())) {
+            return false;
+        }
+
+        $this->relays = $switched;
+
+        return true;
     }
 
     public function getSecret(): ?ConnectSecret

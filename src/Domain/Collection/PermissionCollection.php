@@ -4,15 +4,15 @@ declare(strict_types=1);
 
 namespace Innis\Nostr\Nip46\Domain\Collection;
 
-use Innis\Nostr\Core\Domain\Collection\TypedCollection;
+use Innis\Nostr\Core\Domain\Collection\KeyedCollection;
 use Innis\Nostr\Nip46\Domain\Enum\Nip46Method;
 use Innis\Nostr\Nip46\Domain\ValueObject\Permission;
 use Override;
 
 /**
- * @extends TypedCollection<Permission>
+ * @extends KeyedCollection<Permission>
  */
-final class PermissionCollection extends TypedCollection
+final class PermissionCollection extends KeyedCollection
 {
     private const string SEPARATOR = ',';
 
@@ -34,11 +34,6 @@ final class PermissionCollection extends TypedCollection
         return self::fromEach(explode(self::SEPARATOR, $perms), self::tryParse(...))->unique();
     }
 
-    public function unique(): self
-    {
-        return new self($this->deduplicate(self::keyOf(...)));
-    }
-
     public function minimal(): self
     {
         $permissions = $this->unique()->toArray();
@@ -54,7 +49,7 @@ final class PermissionCollection extends TypedCollection
 
     public function toPermsString(): string
     {
-        return implode(self::SEPARATOR, $this->mapItems(self::keyOf(...)));
+        return implode(self::SEPARATOR, $this->mapItems(static fn (Permission $permission): string => (string) $permission));
     }
 
     public function allows(Permission $requested): bool
@@ -63,11 +58,6 @@ final class PermissionCollection extends TypedCollection
             $this->toArray(),
             static fn (Permission $granted): bool => $granted->covers($requested),
         );
-    }
-
-    private static function keyOf(Permission $permission): string
-    {
-        return (string) $permission;
     }
 
     private static function tryParse(mixed $value): ?Permission

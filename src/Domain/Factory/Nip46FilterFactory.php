@@ -23,7 +23,7 @@ final class Nip46FilterFactory
 
     public static function addressedTo(PublicKey $recipient, Timestamp $now, ?PublicKey $sender = null): Filter
     {
-        return new Filter(
+        return Filter::from(
             authors: null !== $sender ? new PublicKeyCollection([$sender]) : null,
             kinds: new EventKindCollection([EventKind::fromInt(EventKind::NOSTR_CONNECT)]),
             tags: TagFilter::fromValues([TagType::PUBKEY => [$recipient->toHex()]]),

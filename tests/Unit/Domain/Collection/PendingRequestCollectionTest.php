@@ -7,7 +7,6 @@ namespace Innis\Nostr\Nip46\Tests\Unit\Domain\Collection;
 use Innis\Nostr\Core\Domain\ValueObject\Identity\EventId;
 use Innis\Nostr\Core\Domain\ValueObject\Timestamp;
 use Innis\Nostr\Nip46\Domain\Collection\PendingRequestCollection;
-use Innis\Nostr\Nip46\Domain\ValueObject\AppId;
 use Innis\Nostr\Nip46\Domain\ValueObject\PendingRequest;
 use Innis\Nostr\Nip46\Domain\ValueObject\RequestId;
 use Innis\Nostr\Nip46\Domain\ValueObject\SignEventDetail;
@@ -69,7 +68,7 @@ final class PendingRequestCollectionTest extends TestCase
         $eventToSign = UnsignedEventInput::tryFromWire(['kind' => 1, 'content' => 'gm'])
             ?? throw new RuntimeException('Invalid fixture event input');
 
-        return new PendingRequest(self::carrierId($requestId), self::requestId($requestId), TestKeys::clientPubkey(), Timestamp::fromInt($receivedAt), new SignEventDetail($eventToSign), AppId::fromString('demo-app'));
+        return new PendingRequest(self::carrierId($requestId), self::requestId($requestId), TestKeys::clientPubkey(), Timestamp::fromInt($receivedAt), new SignEventDetail($eventToSign));
     }
 
     private static function carrierId(string $seed): EventId

@@ -9,6 +9,7 @@ enum Nip46FailureReason
     case EncryptionFailed;
     case TimedOut;
     case Rejected;
+    case SignerError;
     case InvalidResponse;
     case IdentityMismatch;
     case InvalidSignature;

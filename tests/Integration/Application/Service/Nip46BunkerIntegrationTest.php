@@ -7,14 +7,16 @@ namespace Innis\Nostr\Nip46\Tests\Integration\Application\Service;
 use Innis\Nostr\Core\Domain\Collection\RelayUrlCollection;
 use Innis\Nostr\Core\Domain\Collection\TagCollection;
 use Innis\Nostr\Core\Domain\Entity\Event;
-use Innis\Nostr\Core\Domain\Factory\RumourFactory;
 use Innis\Nostr\Core\Domain\ValueObject\Content\EventContent;
 use Innis\Nostr\Core\Domain\ValueObject\Content\EventKind;
 use Innis\Nostr\Core\Domain\ValueObject\Identity\PrivateKey;
 use Innis\Nostr\Core\Domain\ValueObject\Protocol\RelayUrl;
+use Innis\Nostr\Core\Domain\ValueObject\Protocol\Rumour;
 use Innis\Nostr\Core\Domain\ValueObject\Tag\Tag;
 use Innis\Nostr\Core\Infrastructure\Crypto\Secp256k1Signer;
+use Innis\Nostr\Nip46\Application\Service\CapabilityGate;
 use Innis\Nostr\Nip46\Application\Service\Nip46Bunker;
+use Innis\Nostr\Nip46\Application\Service\Nip46Channel;
 use Innis\Nostr\Nip46\Domain\Enum\EnvelopeCipher;
 use Innis\Nostr\Nip46\Infrastructure\Crypto\LocalNip46Signer;
 use Innis\Nostr\Nip46\Tests\Support\FakeAuthenticator;
@@ -23,7 +25,6 @@ use Innis\Nostr\Nip46\Tests\Support\FixedClock;
 use Innis\Nostr\Nip46\Tests\Support\RecordingTransport;
 use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\TestCase;
-use RuntimeException;
 
 final class Nip46BunkerIntegrationTest extends TestCase
 {
@@ -42,7 +43,11 @@ final class Nip46BunkerIntegrationTest extends TestCase
         $this->clientParty = LocalNip46Signer::create(PrivateKey::generate());
         $this->clock = new FixedClock(1_700_000_000);
 
-        $this->bunker = new Nip46Bunker($this->transport, $this->bunkerParty, new FakeAuthenticator(self::SECRET), FakeAuthoriser::grantingEverythingButSigning(), $this->clock);
+        $this->bunker = new Nip46Bunker(
+            new Nip46Channel($this->transport, $this->bunkerParty, $this->clock),
+            new FakeAuthenticator(self::SECRET),
+            new CapabilityGate($this->bunkerParty, FakeAuthoriser::grantingEverythingButSigning(), $this->clock),
+        );
         $this->bunker->start($this->relays());
     }
 
@@ -91,12 +96,17 @@ final class Nip46BunkerIntegrationTest extends TestCase
         $this->assertSame('hello peer', $this->clientParty->decrypt($this->bunkerParty->publicKey(), $ciphertext, EnvelopeCipher::Nip44));
     }
 
-    public function testOversizeEncryptResultDegradesRatherThanThrowing(): void
+    public function testAnEncryptResultWiderThanAU16LengthIsSealedWithTheExtendedPrefix(): void
     {
-        $this->connect();
-        $this->sendFromClient(['id' => 'e2', 'method' => 'nip44_encrypt', 'params' => [$this->clientParty->publicKey()->toHex(), str_repeat('a', 60000)]]);
+        $plaintext = str_repeat('a', 60000);
 
-        $this->assertSame('response too large', $this->lastResponse()['error'] ?? null);
+        $this->connect();
+        $this->sendFromClient(['id' => 'e2', 'method' => 'nip44_encrypt', 'params' => [$this->clientParty->publicKey()->toHex(), $plaintext]]);
+
+        $ciphertext = $this->lastResponse()['result'] ?? null;
+        self::assertIsString($ciphertext);
+
+        $this->assertSame($plaintext, $this->clientParty->decrypt($this->bunkerParty->publicKey(), $ciphertext, EnvelopeCipher::Nip44));
     }
 
     #[IgnoreDeprecations]
@@ -122,7 +132,7 @@ final class Nip46BunkerIntegrationTest extends TestCase
         $bunkerPubkey = $this->bunkerParty->publicKey();
         $content = $this->clientParty->encrypt($bunkerPubkey, $this->json($request), $cipher);
 
-        $carrier = RumourFactory::createCustomKind(
+        $carrier = Rumour::draft(
             $this->clientParty->publicKey(),
             EventKind::fromInt(EventKind::NOSTR_CONNECT),
             EventContent::fromString($content),
@@ -160,7 +170,7 @@ final class Nip46BunkerIntegrationTest extends TestCase
 
     private function relays(): RelayUrlCollection
     {
-        $relay = RelayUrl::tryFromString('wss://relay.example.com') ?? throw new RuntimeException('relay');
+        $relay = RelayUrl::fromString('wss://relay.example.com');
 
         return new RelayUrlCollection([$relay]);
     }

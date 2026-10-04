@@ -34,7 +34,7 @@ final readonly class SignEventDetail implements PendingRequestDetailInterface
     #[Override]
     public function getCounterparty(): ?PublicKey
     {
-        return $this->eventToSign->getTags()->getFirstPubkeyByType(TagType::pubkey());
+        return $this->eventToSign->getTags()->getSolePubkeyByType(TagType::pubkey());
     }
 
     #[Override]
@@ -58,8 +58,7 @@ final readonly class SignEventDetail implements PendingRequestDetailInterface
 
     public static function tryFromWire(?string $rawEvent): ?self
     {
-        $decoded = null === $rawEvent ? null : JsonWireFormat::decodeArray($rawEvent);
-        $eventToSign = null === $decoded ? null : UnsignedEventInput::tryFromWire($decoded);
+        $eventToSign = null === $rawEvent ? null : UnsignedEventInput::tryFromWire(JsonWireFormat::decode($rawEvent));
 
         return null === $eventToSign ? null : new self($eventToSign);
     }

@@ -9,7 +9,6 @@ use Innis\Nostr\Core\Domain\ValueObject\Identity\EventId;
 use Innis\Nostr\Core\Domain\ValueObject\Identity\PublicKey;
 use Innis\Nostr\Nip46\Domain\Collection\PendingRequestCollection;
 use Innis\Nostr\Nip46\Domain\Enum\EnvelopeCipher;
-use Innis\Nostr\Nip46\Domain\ValueObject\AppId;
 use Innis\Nostr\Nip46\Domain\ValueObject\PendingRequest;
 
 final class BunkerSession
@@ -22,7 +21,7 @@ final class BunkerSession
     /** @var array<string, PendingRequest> */
     private array $pending = [];
 
-    /** @var BoundedMap<AppId> */
+    /** @var BoundedMap<true> */
     private readonly BoundedMap $authenticatedClients;
 
     /** @var BoundedMap<EnvelopeCipher> */
@@ -74,9 +73,9 @@ final class BunkerSession
         return $this->seenEventIds->remember($eventId);
     }
 
-    public function authenticate(PublicKey $client, AppId $appId): void
+    public function authenticate(PublicKey $client): void
     {
-        $this->authenticatedClients->set($client->toHex(), $appId);
+        $this->authenticatedClients->set($client->toHex(), true);
     }
 
     public function deauthenticate(PublicKey $client): void
@@ -89,11 +88,6 @@ final class BunkerSession
         return $this->authenticatedClients->has($client->toHex());
     }
 
-    public function appIdFor(PublicKey $client): ?AppId
-    {
-        return $this->authenticatedClients->get($client->toHex());
-    }
-
     public function recordCipher(PublicKey $client, EnvelopeCipher $cipher): void
     {
         $this->clientCiphers->set($client->toHex(), $cipher);
@@ -104,7 +98,7 @@ final class BunkerSession
         return $this->clientCiphers->get($client->toHex()) ?? EnvelopeCipher::Nip44;
     }
 
-    // Deliberate: a full queue refuses rather than evicts — a silently dropped request would hang the client awaiting it — see ADR-0001
+    // Deliberate: a full queue refuses rather than evicts — a silently dropped request would hang the client awaiting it — see ADR-0024
     public function queue(PendingRequest $request): bool
     {
         if (count($this->pending) >= self::PENDING_REQUEST_LIMIT) {

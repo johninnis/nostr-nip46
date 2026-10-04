@@ -46,6 +46,11 @@ final readonly class Nip46Failure
         return new self(Nip46FailureReason::Rejected, $method, $error);
     }
 
+    public static function signerError(Nip46Method $method, string $error): self
+    {
+        return new self(Nip46FailureReason::SignerError, $method, $error);
+    }
+
     public static function invalidResponse(Nip46Method $method): self
     {
         return new self(Nip46FailureReason::InvalidResponse, $method);
@@ -67,6 +72,7 @@ final readonly class Nip46Failure
             Nip46FailureReason::EncryptionFailed => sprintf('the "%s" request could not be encrypted to the remote signer', $this->method->value),
             Nip46FailureReason::TimedOut => sprintf('the remote signer did not answer "%s" in time', $this->method->value),
             Nip46FailureReason::Rejected => sprintf('the remote signer rejected "%s": %s', $this->method->value, $this->detail ?? 'no reason given'),
+            Nip46FailureReason::SignerError => sprintf('the remote signer could not complete "%s": %s', $this->method->value, $this->detail ?? 'no reason given'),
             Nip46FailureReason::InvalidResponse => sprintf('the remote signer returned an invalid response to "%s"', $this->method->value),
             Nip46FailureReason::IdentityMismatch => sprintf('the remote signer answered "%s" with an event authored by a different identity', $this->method->value),
             Nip46FailureReason::InvalidSignature => sprintf('the remote signer answered "%s" with an event that fails signature verification', $this->method->value),

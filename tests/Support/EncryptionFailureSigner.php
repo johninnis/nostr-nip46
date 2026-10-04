@@ -7,6 +7,7 @@ namespace Innis\Nostr\Nip46\Tests\Support;
 use Innis\Nostr\Core\Domain\Entity\Event;
 use Innis\Nostr\Core\Domain\ValueObject\Identity\PublicKey;
 use Innis\Nostr\Core\Domain\ValueObject\Protocol\Rumour;
+use Innis\Nostr\Core\Infrastructure\Crypto\Nip44Cipher;
 use Innis\Nostr\Nip46\Domain\Enum\EnvelopeCipher;
 use Innis\Nostr\Nip46\Domain\Service\Nip46SignerInterface;
 use Override;
@@ -16,7 +17,7 @@ final class EncryptionFailureSigner implements Nip46SignerInterface
 {
     public function __construct(
         private readonly FakeSigner $delegate,
-        private readonly int $maxPlaintextLength = 65535,
+        private readonly int $maxPlaintextLength = Nip44Cipher::DEFAULT_MAX_PLAINTEXT_LENGTH,
     ) {
     }
 

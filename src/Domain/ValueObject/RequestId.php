@@ -22,7 +22,7 @@ final readonly class RequestId implements Stringable
         return new self($value);
     }
 
-    // Deliberate: reads the entropy source directly, not via an injected port; no random-dependent output under test — see ADR-0007
+    // Deliberate: reads the entropy source directly, not via an injected port; no random-dependent output under test — see ADR-0033
     public static function generate(): self
     {
         return new self(bin2hex(random_bytes(8)));

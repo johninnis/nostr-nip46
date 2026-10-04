@@ -7,7 +7,6 @@ namespace Innis\Nostr\Nip46\Tests\Unit\Domain\ValueObject;
 use Innis\Nostr\Core\Domain\ValueObject\Identity\EventId;
 use Innis\Nostr\Nip46\Domain\Enum\BunkerActivityOutcome;
 use Innis\Nostr\Nip46\Domain\Enum\Nip46Method;
-use Innis\Nostr\Nip46\Domain\ValueObject\AppId;
 use Innis\Nostr\Nip46\Domain\ValueObject\BunkerActivity;
 use Innis\Nostr\Nip46\Domain\ValueObject\CipherDetail;
 use Innis\Nostr\Nip46\Domain\ValueObject\GetPublicKeyDetail;
@@ -25,78 +24,76 @@ final class BunkerActivityTest extends TestCase
 {
     public function testAnActivityForADetailTakesItsMethodFromThePermission(): void
     {
-        $activity = BunkerActivity::forDetail(AppId::fromString('app-1'), new GetPublicKeyDetail(), $this->answered());
+        $activity = BunkerActivity::forDetail(TestKeys::clientPubkey(), new GetPublicKeyDetail(), $this->answered());
 
         $this->assertSame('get_public_key', $activity->getMethod());
     }
 
     public function testAnActivityForACipherDetailCarriesTheCounterparty(): void
     {
-        $activity = BunkerActivity::forDetail(AppId::fromString('app-1'), $this->cipherDetail(), $this->answered());
+        $activity = BunkerActivity::forDetail(TestKeys::clientPubkey(), $this->cipherDetail(), $this->answered());
 
         $this->assertTrue($activity->getCounterparty()?->equals(TestKeys::clientPubkey()));
     }
 
     public function testAnActivityForARequestHasNoCounterparty(): void
     {
-        $activity = BunkerActivity::forRequest(AppId::fromString('app-1'), $this->incoming('ping'), $this->answered());
+        $activity = BunkerActivity::forRequest($this->incoming('ping'), $this->answered());
 
         $this->assertNull($activity->getCounterparty());
     }
 
     public function testAnActivityForARequestTakesItsMethodFromTheWire(): void
     {
-        $activity = BunkerActivity::forRequest(AppId::fromString('app-1'), $this->incoming('switch_relays'), $this->answered());
+        $activity = BunkerActivity::forRequest($this->incoming('switch_relays'), $this->answered());
 
         $this->assertSame('switch_relays', $activity->getMethod());
     }
 
     public function testAResultIsAnsweredAndAnErrorIsFailed(): void
     {
-        $appId = AppId::fromString('app-1');
-
-        $this->assertSame(BunkerActivityOutcome::Answered, BunkerActivity::forRequest($appId, $this->incoming('ping'), $this->answered())->getOutcome());
-        $this->assertSame(BunkerActivityOutcome::Failed, BunkerActivity::forRequest($appId, $this->incoming('ping'), $this->failed())->getOutcome());
+        $this->assertSame(BunkerActivityOutcome::Answered, BunkerActivity::forRequest($this->incoming('ping'), $this->answered())->getOutcome());
+        $this->assertSame(BunkerActivityOutcome::Failed, BunkerActivity::forRequest($this->incoming('ping'), $this->failed())->getOutcome());
     }
 
-    public function testTheActivityIsAttributedToTheGivenApp(): void
+    public function testTheActivityIsAttributedToTheClient(): void
     {
-        $activity = BunkerActivity::forRequest(AppId::fromString('app-7'), $this->incoming('ping'), $this->answered());
+        $activity = BunkerActivity::forRequest($this->incoming('ping'), $this->answered());
 
-        $this->assertSame('app-7', (string) $activity->getAppId());
+        $this->assertTrue($activity->getClient()->equals(TestKeys::clientPubkey()));
     }
 
     public function testAnActivityForASignEventCarriesTheKind(): void
     {
-        $activity = BunkerActivity::forDetail(AppId::fromString('app-1'), $this->signEventDetail(1, 'hello'), $this->answered());
+        $activity = BunkerActivity::forDetail(TestKeys::clientPubkey(), $this->signEventDetail(1, 'hello'), $this->answered());
 
         $this->assertTrue($activity->getEvent()?->getKind()->is(1));
     }
 
     public function testAnActivityForASignEventCarriesTheContent(): void
     {
-        $activity = BunkerActivity::forDetail(AppId::fromString('app-1'), $this->signEventDetail(1, 'hello'), $this->answered());
+        $activity = BunkerActivity::forDetail(TestKeys::clientPubkey(), $this->signEventDetail(1, 'hello'), $this->answered());
 
         $this->assertSame('hello', $activity->getEvent()?->getContent());
     }
 
     public function testAnActivityForACipherDetailSummarisesNoEvent(): void
     {
-        $activity = BunkerActivity::forDetail(AppId::fromString('app-1'), $this->cipherDetail(), $this->answered());
+        $activity = BunkerActivity::forDetail(TestKeys::clientPubkey(), $this->cipherDetail(), $this->answered());
 
         $this->assertNull($activity->getEvent());
     }
 
     public function testAnActivityForAnIdentityDetailSummarisesNoEvent(): void
     {
-        $activity = BunkerActivity::forDetail(AppId::fromString('app-1'), new GetPublicKeyDetail(), $this->answered());
+        $activity = BunkerActivity::forDetail(TestKeys::clientPubkey(), new GetPublicKeyDetail(), $this->answered());
 
         $this->assertNull($activity->getEvent());
     }
 
     public function testAnActivityForARequestSummarisesNoEvent(): void
     {
-        $activity = BunkerActivity::forRequest(AppId::fromString('app-1'), $this->incoming('ping'), $this->answered());
+        $activity = BunkerActivity::forRequest($this->incoming('ping'), $this->answered());
 
         $this->assertNull($activity->getEvent());
     }

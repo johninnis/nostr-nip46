@@ -67,6 +67,6 @@ final class Nip46EventHandlerTest extends TestCase
 
     private function relayUrl(): RelayUrl
     {
-        return RelayUrl::tryFromString('wss://relay.example.com') ?? throw new RuntimeException('Invalid fixture relay');
+        return RelayUrl::fromString('wss://relay.example.com');
     }
 }

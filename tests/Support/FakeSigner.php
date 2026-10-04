@@ -17,6 +17,11 @@ final class FakeSigner implements Nip46SignerInterface
 {
     private const string DUMMY_SIGNATURE_HEX = '00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000';
 
+    private const string NIP04_IV_SUFFIX = '?iv=AAAAAAAAAAAAAAAAAAAAAA==';
+
+    /** @var list<EnvelopeCipher> */
+    private array $decryptCiphers = [];
+
     public function __construct(private readonly PublicKey $publicKey)
     {
     }
@@ -46,24 +51,39 @@ final class FakeSigner implements Nip46SignerInterface
     #[Override]
     public function decrypt(PublicKey $peer, string $ciphertext, EnvelopeCipher $cipher): ?string
     {
+        $this->decryptCiphers[] = $cipher;
         $prefix = self::prefix($cipher);
+        $suffix = self::suffix($cipher);
 
-        if (!str_starts_with($ciphertext, $prefix)) {
+        if (!str_starts_with($ciphertext, $prefix) || !str_ends_with($ciphertext, $suffix)) {
             return null;
         }
 
-        $decoded = base64_decode(substr($ciphertext, strlen($prefix)), true);
+        $decoded = base64_decode(substr($ciphertext, strlen($prefix), strlen($ciphertext) - strlen($prefix) - strlen($suffix)), true);
 
         return false === $decoded ? null : $decoded;
     }
 
+    /**
+     * @return list<EnvelopeCipher>
+     */
+    public function decryptCiphers(): array
+    {
+        return $this->decryptCiphers;
+    }
+
     public static function seal(string $plaintext, EnvelopeCipher $cipher): string
     {
-        return self::prefix($cipher).base64_encode($plaintext);
+        return self::prefix($cipher).base64_encode($plaintext).self::suffix($cipher);
     }
 
     private static function prefix(EnvelopeCipher $cipher): string
     {
         return 'enc:'.$cipher->value.':';
+    }
+
+    private static function suffix(EnvelopeCipher $cipher): string
+    {
+        return EnvelopeCipher::Nip04 === $cipher ? self::NIP04_IV_SUFFIX : '';
     }
 }

@@ -21,7 +21,7 @@ Treating these as one category is what forces the audit to be useless rather tha
 
 ## Decision
 
-Carried forward from ADR-0020, unchanged: an optional activity listener receives a `BunkerActivity` for each request the bunker answers by itself and nothing about a request it queues; a queued request is recorded by the host at the point of decision; the same method may be reported by the bunker on one request and recorded by the host on the next, according to whether the app's grants covered it; the listener is a pure observer whose absence changes nothing. The activity is attributed by app id, not client public key, for the reasons ADR-0014 gave.
+Carried forward from ADR-0020, unchanged: an optional activity listener receives a `BunkerActivity` for each request the bunker answers by itself and nothing about a request it queues; a queued request is recorded by the host at the point of decision; the same method may be reported by the bunker on one request and recorded by the host on the next, according to whether the client's grants covered it; the listener is a pure observer whose absence changes nothing. The activity is attributed by the client's public key (ADR-0035).
 
 Revised: the activity may carry a **`SignEventSummary` — the event kind and the event content — and only for a `sign_event` request**. No other payload is summarised. Every other fact stays derived metadata as before: the raw request event, its signature, and the request id are still never surfaced.
 

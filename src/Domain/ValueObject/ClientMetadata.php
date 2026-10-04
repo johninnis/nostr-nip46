@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Innis\Nostr\Nip46\Domain\ValueObject;
 
+use Innis\Nostr\Core\Domain\Service\JsonWireFormat;
 use Innis\Nostr\Nip46\Domain\Collection\PermissionCollection;
 
 final readonly class ClientMetadata
@@ -44,6 +45,16 @@ final readonly class ClientMetadata
     public function getRequested(): PermissionCollection
     {
         return $this->requested;
+    }
+
+    public function toJson(): ?string
+    {
+        $described = array_filter(
+            ['name' => $this->name, 'url' => $this->url, 'image' => $this->image],
+            static fn (?string $value): bool => null !== $value,
+        );
+
+        return [] === $described ? null : JsonWireFormat::encode($described, JsonWireFormat::MESSAGE);
     }
 
     private static function nonEmpty(?string $value): ?string

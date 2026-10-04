@@ -6,10 +6,13 @@ require_once __DIR__.'/../vendor/autoload.php';
 
 use Innis\Nostr\Core\Domain\Collection\RelayUrlCollection;
 use Innis\Nostr\Core\Domain\Entity\Event;
-use Innis\Nostr\Core\Domain\Factory\RumourFactory;
+use Innis\Nostr\Core\Domain\ValueObject\Content\EventContent;
+use Innis\Nostr\Core\Domain\ValueObject\Content\EventKind;
 use Innis\Nostr\Core\Domain\ValueObject\Identity\PrivateKey;
+use Innis\Nostr\Core\Domain\ValueObject\Identity\PublicKey;
 use Innis\Nostr\Core\Domain\ValueObject\Protocol\Filter;
 use Innis\Nostr\Core\Domain\ValueObject\Protocol\RelayUrl;
+use Innis\Nostr\Core\Domain\ValueObject\Protocol\Rumour;
 use Innis\Nostr\Core\Infrastructure\Crypto\Secp256k1Signer;
 use Innis\Nostr\Core\Infrastructure\Time\SystemClock;
 use Innis\Nostr\Nip46\Application\Port\BunkerQueueListenerInterface;
@@ -19,14 +22,17 @@ use Innis\Nostr\Nip46\Application\Port\Nip46AuthoriserInterface;
 use Innis\Nostr\Nip46\Application\Port\Nip46EventListenerInterface;
 use Innis\Nostr\Nip46\Application\Port\Nip46PendingResponseInterface;
 use Innis\Nostr\Nip46\Application\Port\Nip46PendingResponsesInterface;
+use Innis\Nostr\Nip46\Application\Port\Nip46SecretListenerInterface;
 use Innis\Nostr\Nip46\Application\Port\Nip46SubscriptionInterface;
 use Innis\Nostr\Nip46\Application\Port\Nip46TransportInterface;
+use Innis\Nostr\Nip46\Application\Service\CapabilityGate;
 use Innis\Nostr\Nip46\Application\Service\Nip46Bunker;
+use Innis\Nostr\Nip46\Application\Service\Nip46Channel;
 use Innis\Nostr\Nip46\Application\Service\Nip46Client;
 use Innis\Nostr\Nip46\Domain\Collection\PermissionCollection;
 use Innis\Nostr\Nip46\Domain\Failure\Nip46Failure;
-use Innis\Nostr\Nip46\Domain\ValueObject\AppId;
 use Innis\Nostr\Nip46\Domain\ValueObject\BunkerActivity;
+use Innis\Nostr\Nip46\Domain\ValueObject\ClientMetadata;
 use Innis\Nostr\Nip46\Domain\ValueObject\ConnectSecret;
 use Innis\Nostr\Nip46\Domain\ValueObject\Nip46Response;
 use Innis\Nostr\Nip46\Domain\ValueObject\Permission;
@@ -97,9 +103,9 @@ $authenticator = new class($secret) implements Nip46AuthenticatorInterface {
     }
 
     #[Override]
-    public function authenticate(?ConnectSecret $secret): ?AppId
+    public function authenticate(?ConnectSecret $secret): bool
     {
-        return null !== $secret && $secret->equals($this->secret) ? AppId::fromString('demo-app') : null;
+        return null !== $secret && $secret->equals($this->secret);
     }
 };
 
@@ -113,13 +119,19 @@ $authoriser = new class implements Nip46AuthoriserInterface {
     }
 
     #[Override]
-    public function isAuthorised(AppId $appId, Permission $permission): bool
+    public function isAuthorised(PublicKey $client, Permission $permission): bool
     {
         return $this->granted->allows($permission);
     }
 };
 
-$bunker = new Nip46Bunker($bunkerTransport, LocalNip46Signer::create(PrivateKey::generate()), $authenticator, $authoriser, $clock);
+/* One key here both speaks on the relays and signs as the user; NIP-46 lets the two differ, so the channel and the gate each take a signer. */
+$userSigner = LocalNip46Signer::create(PrivateKey::generate());
+$bunker = new Nip46Bunker(
+    new Nip46Channel($bunkerTransport, $userSigner, $clock),
+    $authenticator,
+    new CapabilityGate($userSigner, $authoriser, $clock),
+);
 $bunker->start(new RelayUrlCollection([$relay]));
 
 /* A stand-in operator that approves every queued signing request on sight. */
@@ -143,7 +155,16 @@ $bunker->setActivityListener(new class implements Nip46ActivityListenerInterface
     #[Override]
     public function onActivity(BunkerActivity $activity): void
     {
-        echo 'activity: '.$activity->getMethod().' for '.$activity->getAppId().' -> '.$activity->getOutcome()->name.PHP_EOL;
+        echo 'activity: '.$activity->getMethod().' for '.$activity->getClient()->toHex().' -> '.$activity->getOutcome()->name.PHP_EOL;
+    }
+});
+
+/* A secret connects one client. A real host retires it in its store here, issues a fresh one, and keeps the client key to restorePairing() after a restart. */
+$bunker->setSecretListener(new class implements Nip46SecretListenerInterface {
+    #[Override]
+    public function onSecretUsed(ConnectSecret $secret, PublicKey $client): void
+    {
+        echo 'secret used by '.$client->toHex().'; issue a fresh one for the next device'.PHP_EOL;
     }
 });
 
@@ -184,14 +205,12 @@ $pendingResponses = new class implements Nip46PendingResponsesInterface {
 };
 
 $client = new Nip46Client(
-    $clientTransport,
-    LocalNip46Signer::create(PrivateKey::generate()),
+    new Nip46Channel($clientTransport, LocalNip46Signer::create(PrivateKey::generate()), $clock),
     Secp256k1Signer::create(),
-    $clock,
     $pendingResponses,
 );
 
-$userPublicKey = $client->connect($bunkerUrl, timeoutSeconds: 2.0);
+$userPublicKey = $client->connect($bunkerUrl, new ClientMetadata('Example client', 'https://client.example', null, new PermissionCollection()), 2.0);
 
 if ($userPublicKey instanceof Nip46Failure) {
     exit('connect failed: '.$userPublicKey->describe().PHP_EOL);
@@ -199,7 +218,7 @@ if ($userPublicKey instanceof Nip46Failure) {
 
 echo 'connected; signing as '.$userPublicKey->toHex().PHP_EOL;
 
-$signed = $client->signEvent(RumourFactory::createTextNote($userPublicKey, 'gm from a remote device'), timeoutSeconds: 2.0);
+$signed = $client->signEvent(Rumour::draft($userPublicKey, EventKind::fromInt(EventKind::TEXT_NOTE), EventContent::fromString('gm from a remote device')), timeoutSeconds: 2.0);
 
 if ($signed instanceof Nip46Failure) {
     exit('signing failed: '.$signed->describe().PHP_EOL);
@@ -208,5 +227,7 @@ if ($signed instanceof Nip46Failure) {
 echo 'signed event '.$signed->getId()->toHex().PHP_EOL;
 echo 'signature verifies: '.($signed->verify(Secp256k1Signer::create()) ? 'yes' : 'no').PHP_EOL;
 
-$client->close();
+$loggedOut = $client->logout(2.0);
+echo 'logout: '.(null === $loggedOut ? 'acknowledged' : $loggedOut->describe()).PHP_EOL;
+
 $bunker->stop();

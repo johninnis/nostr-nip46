@@ -58,6 +58,21 @@ final class Nip46RequestTest extends TestCase
         $this->assertNull(Nip46Request::tryFromWire(['id' => 'abc', 'method' => 'ping', 'params' => 'nope']));
     }
 
+    public function testRejectsNullParams(): void
+    {
+        $this->assertNull(Nip46Request::tryFromWire(['id' => 'abc', 'method' => 'ping', 'params' => null]));
+    }
+
+    public function testRejectsParamsWrittenAsAJsonObject(): void
+    {
+        $this->assertNull(Nip46Request::tryFromWire(['id' => 'abc', 'method' => 'connect', 'params' => ['pubkey' => 'a', 'secret' => 'b']]));
+    }
+
+    public function testRejectsParamsWrittenAsAJsonObjectKeyedLikeAList(): void
+    {
+        $this->assertNull(Nip46Request::tryFromWire(['id' => 'abc', 'method' => 'connect', 'params' => (object) ['a', 'b']]));
+    }
+
     public function testRejectsNonArrayInput(): void
     {
         $this->assertNull(Nip46Request::tryFromWire('not-an-object'));

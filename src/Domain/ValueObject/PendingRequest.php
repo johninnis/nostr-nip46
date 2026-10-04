@@ -17,7 +17,6 @@ final readonly class PendingRequest
         private PublicKey $clientPubkey,
         private Timestamp $receivedAt,
         private PendingRequestDetailInterface $detail,
-        private AppId $appId,
     ) {
     }
 
@@ -29,11 +28,6 @@ final readonly class PendingRequest
     public function getRequestId(): RequestId
     {
         return $this->requestId;
-    }
-
-    public function getAppId(): AppId
-    {
-        return $this->appId;
     }
 
     public function getClientPubkey(): PublicKey

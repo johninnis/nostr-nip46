@@ -5,11 +5,12 @@ declare(strict_types=1);
 namespace Innis\Nostr\Nip46\Domain\ValueObject;
 
 use Innis\Nostr\Core\Domain\ValueObject\Content\EventKind;
+use Innis\Nostr\Core\Domain\ValueObject\IdentityKeyedInterface;
 use Innis\Nostr\Nip46\Domain\Enum\Nip46Method;
 use Override;
 use Stringable;
 
-final readonly class Permission implements Stringable
+final readonly class Permission implements IdentityKeyedInterface, Stringable
 {
     private const string PARAMETER_SEPARATOR = ':';
 
@@ -78,6 +79,12 @@ final readonly class Permission implements Stringable
     public function equals(self $other): bool
     {
         return $this->method === $other->method && $this->kind?->toInt() === $other->kind?->toInt();
+    }
+
+    #[Override]
+    public function identityKey(): string
+    {
+        return (string) $this;
     }
 
     #[Override]

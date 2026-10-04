@@ -10,20 +10,20 @@ use Innis\Nostr\Nip46\Domain\Enum\BunkerActivityOutcome;
 final readonly class BunkerActivity
 {
     private function __construct(
-        private AppId $appId,
+        private PublicKey $client,
         private AnsweredRequest $request,
         private BunkerActivityOutcome $outcome,
     ) {
     }
 
-    public static function forDetail(AppId $appId, PendingRequestDetailInterface $detail, Nip46Response $response): self
+    public static function forDetail(PublicKey $client, PendingRequestDetailInterface $detail, Nip46Response $response): self
     {
-        return new self($appId, AnsweredRequest::forDetail($detail), self::outcomeOf($response));
+        return new self($client, AnsweredRequest::forDetail($detail), self::outcomeOf($response));
     }
 
-    public static function forRequest(AppId $appId, IncomingRequest $incoming, Nip46Response $response): self
+    public static function forRequest(IncomingRequest $incoming, Nip46Response $response): self
     {
-        return new self($appId, AnsweredRequest::forMethod($incoming->getMethod()), self::outcomeOf($response));
+        return new self($incoming->getClientPubkey(), AnsweredRequest::forMethod($incoming->getMethod()), self::outcomeOf($response));
     }
 
     public function getMethod(): string
@@ -31,9 +31,9 @@ final readonly class BunkerActivity
         return $this->request->getMethod();
     }
 
-    public function getAppId(): AppId
+    public function getClient(): PublicKey
     {
-        return $this->appId;
+        return $this->client;
     }
 
     public function getEvent(): ?SignEventSummary

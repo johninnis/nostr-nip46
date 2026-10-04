@@ -67,25 +67,19 @@ final readonly class Nip46Request
             return null;
         }
 
-        $rawParams = $value['params'] ?? [];
+        $rawParams = array_key_exists('params', $value) ? $value['params'] : [];
 
-        if (!is_array($rawParams)) {
+        if (!is_array($rawParams) || !array_is_list($rawParams)) {
             return null;
         }
 
-        $params = array_map(self::normaliseParam(...), array_values($rawParams));
+        $params = array_map(self::normaliseParam(...), $rawParams);
 
         return new self($id, $method, $params);
     }
 
     private static function normaliseParam(mixed $param): string
     {
-        if (is_string($param)) {
-            return $param;
-        }
-
-        $encoded = json_encode($param, JsonWireFormat::MESSAGE);
-
-        return false === $encoded ? '' : $encoded;
+        return is_string($param) ? $param : JsonWireFormat::encode($param, JsonWireFormat::MESSAGE);
     }
 }

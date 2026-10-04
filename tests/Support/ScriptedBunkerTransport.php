@@ -26,6 +26,9 @@ final class ScriptedBunkerTransport implements Nip46TransportInterface
     /** @var list<Event> */
     public array $published = [];
 
+    /** @var list<list<string>> */
+    public array $publishedTo = [];
+
     public bool $cancelled = false;
 
     private ?Nip46EventListenerInterface $listener = null;
@@ -68,6 +71,7 @@ final class ScriptedBunkerTransport implements Nip46TransportInterface
     public function publish(RelayUrlCollection $relays, Event $event): void
     {
         $this->published[] = $event;
+        $this->publishedTo[] = $relays->toStrings();
 
         $listener = $this->listener;
 
@@ -99,15 +103,10 @@ final class ScriptedBunkerTransport implements Nip46TransportInterface
      */
     private static function openRequest(Event $event): array
     {
-        foreach (EnvelopeCipher::cases() as $cipher) {
-            $plaintext = new FakeSigner(TestKeys::clientPubkey())->decrypt(TestKeys::signerPubkey(), (string) $event->getContent(), $cipher);
-            $decoded = null === $plaintext ? null : JsonWireFormat::decodeArray($plaintext);
+        $content = (string) $event->getContent();
+        $plaintext = new FakeSigner(TestKeys::clientPubkey())->decrypt(TestKeys::signerPubkey(), $content, EnvelopeCipher::ofPayload($content));
+        $decoded = null === $plaintext ? null : JsonWireFormat::decode($plaintext);
 
-            if (null !== $decoded) {
-                return $decoded;
-            }
-        }
-
-        throw new RuntimeException('Published event does not carry a decodable NIP-46 request');
+        return is_array($decoded) && !array_is_list($decoded) ? $decoded : throw new RuntimeException('Published event does not carry a decodable NIP-46 request');
     }
 }

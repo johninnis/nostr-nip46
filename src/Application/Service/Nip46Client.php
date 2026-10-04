@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace Innis\Nostr\Nip46\Application\Service;
 
-use Innis\Nostr\Core\Application\Port\ClockInterface;
+use Innis\Nostr\Core\Domain\Collection\RelayUrlCollection;
 use Innis\Nostr\Core\Domain\Entity\Event;
+use Innis\Nostr\Core\Domain\Service\JsonWireFormat;
 use Innis\Nostr\Core\Domain\Service\SignatureServiceInterface;
 use Innis\Nostr\Core\Domain\ValueObject\Identity\PublicKey;
 use Innis\Nostr\Core\Domain\ValueObject\Protocol\Rumour;
@@ -13,61 +14,48 @@ use Innis\Nostr\Nip46\Application\Port\Nip46AuthUrlListenerInterface;
 use Innis\Nostr\Nip46\Application\Port\Nip46EventListenerInterface;
 use Innis\Nostr\Nip46\Application\Port\Nip46PendingResponsesInterface;
 use Innis\Nostr\Nip46\Application\Port\Nip46SubscriptionInterface;
-use Innis\Nostr\Nip46\Application\Port\Nip46TransportInterface;
 use Innis\Nostr\Nip46\Domain\Entity\ClientSession;
 use Innis\Nostr\Nip46\Domain\Enum\Nip46Method;
-use Innis\Nostr\Nip46\Domain\Factory\Nip46FilterFactory;
 use Innis\Nostr\Nip46\Domain\Failure\Nip46Failure;
-use Innis\Nostr\Nip46\Domain\Service\Nip46EnvelopeCodec;
-use Innis\Nostr\Nip46\Domain\Service\Nip46SignerInterface;
+use Innis\Nostr\Nip46\Domain\Service\UserRejectionMatcher;
 use Innis\Nostr\Nip46\Domain\ValueObject\BunkerUrl;
+use Innis\Nostr\Nip46\Domain\ValueObject\ClientMetadata;
 use Innis\Nostr\Nip46\Domain\ValueObject\Nip46Request;
 use Innis\Nostr\Nip46\Domain\ValueObject\Nip46Response;
 use LogicException;
 use Override;
-use Throwable;
 
 final class Nip46Client implements Nip46ClientInterface, Nip46EventListenerInterface
 {
-    private readonly Nip46EnvelopeCodec $codec;
-
     private ?ClientSession $session = null;
     private ?Nip46SubscriptionInterface $subscription = null;
     private ?Nip46AuthUrlListenerInterface $authUrlListener = null;
 
-    // Deliberate: five irreducible driven ports, not a decomposable unit — see ADR-0007
     public function __construct(
-        private readonly Nip46TransportInterface $transport,
-        private readonly Nip46SignerInterface $sessionSigner,
+        private readonly Nip46ChannelInterface $channel,
         private readonly SignatureServiceInterface $signatureService,
-        private readonly ClockInterface $clock,
         private readonly Nip46PendingResponsesInterface $pending,
     ) {
-        $this->codec = new Nip46EnvelopeCodec($sessionSigner);
     }
 
     #[Override]
-    public function connect(BunkerUrl $bunker, float $timeoutSeconds = self::DEFAULT_TIMEOUT_SECONDS): PublicKey|Nip46Failure
+    public function connect(BunkerUrl $bunker, ?ClientMetadata $metadata = null, float $timeoutSeconds = self::DEFAULT_TIMEOUT_SECONDS): PublicKey|Nip46Failure
     {
         $this->close();
 
         $session = new ClientSession($bunker);
         $this->session = $session;
+        $this->listen($session);
 
-        $filter = Nip46FilterFactory::addressedTo(
-            $this->sessionSigner->publicKey(),
-            $this->clock->now(),
-            $bunker->getRemoteSignerPubkey(),
-        );
-        $this->subscription = $this->transport->subscribe($filter, $bunker->getRelays(), $this);
-
-        $connected = $this->request(Nip46Method::Connect, self::connectParams($session), $timeoutSeconds);
+        $connected = $this->request(Nip46Method::Connect, self::connectParams($session, $metadata), $timeoutSeconds);
 
         if ($connected instanceof Nip46Failure) {
             $this->close();
 
             return $connected;
         }
+
+        $this->switchRelays($session, $timeoutSeconds);
 
         $result = $this->request(Nip46Method::GetPublicKey, [], $timeoutSeconds);
 
@@ -88,6 +76,25 @@ final class Nip46Client implements Nip46ClientInterface, Nip46EventListenerInter
         $session->identify($userPublicKey);
 
         return $userPublicKey;
+    }
+
+    // Deliberate: a resumed session sends nothing — no connect, switch_relays or get_public_key — see ADR-0026
+    #[Override]
+    public function resume(BunkerUrl $bunker, PublicKey $userPublicKey): void
+    {
+        $this->close();
+
+        $session = new ClientSession($bunker);
+        $session->identify($userPublicKey);
+        $this->session = $session;
+        $this->listen($session);
+    }
+
+    #[Override]
+    public function getRelays(): RelayUrlCollection
+    {
+        return $this->session?->getRelays()
+            ?? throw new LogicException('Client is not connected to a bunker; connect() or resume() first');
     }
 
     #[Override]
@@ -144,6 +151,22 @@ final class Nip46Client implements Nip46ClientInterface, Nip46EventListenerInter
     }
 
     #[Override]
+    public function logout(float $timeoutSeconds = self::DEFAULT_TIMEOUT_SECONDS): ?Nip46Failure
+    {
+        try {
+            $result = $this->request(Nip46Method::Logout, [], $timeoutSeconds);
+        } finally {
+            $this->close();
+        }
+
+        if ($result instanceof Nip46Failure) {
+            return $result;
+        }
+
+        return 'ack' === $result ? null : Nip46Failure::invalidResponse(Nip46Method::Logout);
+    }
+
+    #[Override]
     public function setAuthUrlListener(?Nip46AuthUrlListenerInterface $listener): void
     {
         $this->authUrlListener = $listener;
@@ -171,7 +194,7 @@ final class Nip46Client implements Nip46ClientInterface, Nip46EventListenerInter
             return;
         }
 
-        $decoded = $this->codec->open($session->getRemoteSignerPubkey(), (string) $event->getContent(), $session->getCipher());
+        $decoded = $this->channel->open($event);
 
         if (null === $decoded) {
             return;
@@ -188,14 +211,47 @@ final class Nip46Client implements Nip46ClientInterface, Nip46EventListenerInter
         if ($response->isAuthUrlChallenge()) {
             $url = $response->getAuthUrl();
 
-            if (null !== $url) {
-                $this->authUrlListener?->onAuthUrl($url);
+            if (null === $url) {
+                return;
             }
+
+            // Deliberate: a challenge the host cannot show fails the request at once with the URL, never a silent timeout — see ADR-0036
+            if (null === $this->authUrlListener) {
+                $this->pending->complete(Nip46Response::failure($response->getId(), 'bunker requires authentication: '.$url));
+
+                return;
+            }
+
+            $this->authUrlListener->onAuthUrl($url);
 
             return;
         }
 
         $this->pending->complete($response);
+    }
+
+    private function listen(ClientSession $session): void
+    {
+        $this->subscription = $this->channel->listen($session->getRelays(), $session->getRemoteSignerPubkey(), $this);
+    }
+
+    // Deliberate: a failed or empty switch_relays answer keeps the relays in use and does not fail the connection — see ADR-0025
+    private function switchRelays(ClientSession $session, float $timeoutSeconds): void
+    {
+        $result = $this->request(Nip46Method::SwitchRelays, [], $timeoutSeconds);
+
+        if ($result instanceof Nip46Failure) {
+            return;
+        }
+
+        $relays = JsonWireFormat::decode($result);
+
+        if (!is_array($relays) || !array_is_list($relays) || !$session->adoptRelays(RelayUrlCollection::fromStrings($relays))) {
+            return;
+        }
+
+        $this->subscription?->cancel();
+        $this->listen($session);
     }
 
     /**
@@ -208,16 +264,16 @@ final class Nip46Client implements Nip46ClientInterface, Nip46EventListenerInter
 
         $request = Nip46Request::generate($method->value, $params);
 
-        // Deliberate: sealing encrypts a caller-supplied payload; a cipher fault is returned as a failure before any pending slot is opened — see ADR-0009.
-        try {
-            $event = $this->codec->seal($session->getRemoteSignerPubkey(), $request->toJson(), $session->getCipher());
-        } catch (Throwable) {
+        // Deliberate: a request its cipher refuses is a returned failure, sealed before any pending slot is opened — see ADR-0028
+        $event = $this->channel->seal($session->getRemoteSignerPubkey(), $request->toJson(), $session->getCipher());
+
+        if (null === $event) {
             return Nip46Failure::encryptionFailed($method);
         }
 
         $pending = $this->pending->open($request->getId());
 
-        $this->transport->publish($session->getRelays(), $event);
+        $this->channel->publish($session->getRelays(), $event);
 
         $response = $pending->await($timeoutSeconds);
 
@@ -228,7 +284,9 @@ final class Nip46Client implements Nip46ClientInterface, Nip46EventListenerInter
         $error = $response->getError();
 
         if (null !== $error) {
-            return Nip46Failure::rejected($method, $error);
+            return UserRejectionMatcher::matches($error)
+                ? Nip46Failure::rejected($method, $error)
+                : Nip46Failure::signerError($method, $error);
         }
 
         return $response->getResult()
@@ -238,11 +296,19 @@ final class Nip46Client implements Nip46ClientInterface, Nip46EventListenerInter
     /**
      * @return list<string>
      */
-    private static function connectParams(ClientSession $session): array
+    private static function connectParams(ClientSession $session, ?ClientMetadata $metadata): array
     {
-        $secret = $session->getSecret();
-        $remoteSignerPubkey = $session->getRemoteSignerPubkey()->toHex();
+        $params = [
+            $session->getRemoteSignerPubkey()->toHex(),
+            (string) $session->getSecret(),
+            $metadata?->getRequested()->toPermsString() ?? '',
+            $metadata?->toJson() ?? '',
+        ];
 
-        return null === $secret ? [$remoteSignerPubkey] : [$remoteSignerPubkey, (string) $secret];
+        while ('' === end($params)) {
+            array_pop($params);
+        }
+
+        return $params;
     }
 }

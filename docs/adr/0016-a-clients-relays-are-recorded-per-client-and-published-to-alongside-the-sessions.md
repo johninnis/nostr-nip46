@@ -16,7 +16,7 @@ Widening the session's single set to the union of every pairing's relays would k
 
 ## Decision
 
-Relays are recorded **per client**, beside the app id and cipher the session already tracks per client. `relaysFor(client)` answers the session's own relays merged with that client's recorded set, and every response is published there; a client with no recorded relays is answered exactly as before, on the session's own set.
+Relays are recorded **per client**, beside the cipher the session already tracks per client. `relaysFor(client)` answers the session's own relays merged with that client's recorded set, and every response is published there; a client with no recorded relays is answered exactly as before, on the session's own set.
 
 The session separately tracks which relays it is already listening on, and a pairing subscribes only on the relays not yet covered — so two pairings naming one relay produce one subscription, and the signer's own relays are never subscribed twice.
 

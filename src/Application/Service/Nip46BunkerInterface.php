@@ -9,8 +9,8 @@ use Innis\Nostr\Core\Domain\ValueObject\Identity\EventId;
 use Innis\Nostr\Core\Domain\ValueObject\Identity\PublicKey;
 use Innis\Nostr\Nip46\Application\Port\BunkerQueueListenerInterface;
 use Innis\Nostr\Nip46\Application\Port\Nip46ActivityListenerInterface;
+use Innis\Nostr\Nip46\Application\Port\Nip46SecretListenerInterface;
 use Innis\Nostr\Nip46\Domain\Collection\PendingRequestCollection;
-use Innis\Nostr\Nip46\Domain\ValueObject\AppId;
 use Innis\Nostr\Nip46\Domain\ValueObject\BunkerUrl;
 use Innis\Nostr\Nip46\Domain\ValueObject\ConnectSecret;
 use Innis\Nostr\Nip46\Domain\ValueObject\NostrConnectUrl;
@@ -25,9 +25,11 @@ interface Nip46BunkerInterface
 
     public function setActivityListener(?Nip46ActivityListenerInterface $listener): void;
 
-    public function acceptNostrConnect(NostrConnectUrl $url, AppId $appId): bool;
+    public function setSecretListener(?Nip46SecretListenerInterface $listener): void;
 
-    public function restorePairing(PublicKey $client, AppId $appId, RelayUrlCollection $relays): bool;
+    public function acceptNostrConnect(NostrConnectUrl $url): bool;
+
+    public function restorePairing(PublicKey $client, RelayUrlCollection $relays): bool;
 
     public function publicKey(): PublicKey;
 

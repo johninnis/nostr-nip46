@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Innis\Nostr\Nip46\Tests\Support;
 
+use Innis\Nostr\Core\Domain\ValueObject\Identity\PublicKey;
 use Innis\Nostr\Nip46\Application\Port\Nip46AuthoriserInterface;
 use Innis\Nostr\Nip46\Domain\Collection\PermissionCollection;
-use Innis\Nostr\Nip46\Domain\ValueObject\AppId;
 use Innis\Nostr\Nip46\Domain\ValueObject\Permission;
 use Override;
 
@@ -33,7 +33,7 @@ final readonly class FakeAuthoriser implements Nip46AuthoriserInterface
     }
 
     #[Override]
-    public function isAuthorised(AppId $appId, Permission $permission): bool
+    public function isAuthorised(PublicKey $client, Permission $permission): bool
     {
         return $this->granted->allows($permission);
     }

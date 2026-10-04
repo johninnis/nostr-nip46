@@ -11,7 +11,6 @@ use Innis\Nostr\Core\Domain\ValueObject\Protocol\RelayUrl;
 use Innis\Nostr\Core\Domain\ValueObject\Timestamp;
 use Innis\Nostr\Nip46\Domain\Entity\BunkerSession;
 use Innis\Nostr\Nip46\Domain\Enum\EnvelopeCipher;
-use Innis\Nostr\Nip46\Domain\ValueObject\AppId;
 use Innis\Nostr\Nip46\Domain\ValueObject\PendingRequest;
 use Innis\Nostr\Nip46\Domain\ValueObject\RequestId;
 use Innis\Nostr\Nip46\Domain\ValueObject\SignEventDetail;
@@ -36,12 +35,10 @@ final class BunkerSessionTest extends TestCase
         $session = $this->session();
 
         $this->assertFalse($session->isAuthenticated(TestKeys::clientPubkey()));
-        $this->assertNull($session->appIdFor(TestKeys::clientPubkey()));
 
-        $session->authenticate(TestKeys::clientPubkey(), AppId::fromString('app-7'));
+        $session->authenticate(TestKeys::clientPubkey());
 
         $this->assertTrue($session->isAuthenticated(TestKeys::clientPubkey()));
-        $this->assertSame('app-7', (string) $session->appIdFor(TestKeys::clientPubkey()));
     }
 
     public function testCipherDefaultsToNip44(): void
@@ -164,12 +161,11 @@ final class BunkerSessionTest extends TestCase
     public function testKeepsAuthenticatedClientsWithinTheLimit(): void
     {
         $session = $this->session();
-        $appId = AppId::fromString('app-1');
         $first = $this->clientKey(1);
-        $session->authenticate($first, $appId);
+        $session->authenticate($first);
 
         foreach (range(2, BunkerSession::AUTHENTICATED_CLIENT_LIMIT) as $i) {
-            $session->authenticate($this->clientKey($i), $appId);
+            $session->authenticate($this->clientKey($i));
         }
 
         $this->assertTrue($session->isAuthenticated($first));
@@ -178,12 +174,11 @@ final class BunkerSessionTest extends TestCase
     public function testEvictsTheOldestAuthenticatedClientPastTheLimit(): void
     {
         $session = $this->session();
-        $appId = AppId::fromString('app-1');
         $first = $this->clientKey(1);
-        $session->authenticate($first, $appId);
+        $session->authenticate($first);
 
         foreach (range(2, BunkerSession::AUTHENTICATED_CLIENT_LIMIT + 1) as $i) {
-            $session->authenticate($this->clientKey($i), $appId);
+            $session->authenticate($this->clientKey($i));
         }
 
         $this->assertFalse($session->isAuthenticated($first));
@@ -191,7 +186,7 @@ final class BunkerSessionTest extends TestCase
 
     private function session(): BunkerSession
     {
-        $relay = RelayUrl::tryFromString('wss://relay.example.com') ?? throw new RuntimeException('relay');
+        $relay = RelayUrl::fromString('wss://relay.example.com');
 
         return new BunkerSession(new RelayUrlCollection([$relay]));
     }
@@ -202,7 +197,7 @@ final class BunkerSessionTest extends TestCase
         $carrier = EventId::tryFromHex(hash('sha256', $requestId)) ?? throw new RuntimeException('carrier id');
         $id = RequestId::tryFromString($requestId) ?? throw new RuntimeException('request id');
 
-        return new PendingRequest($carrier, $id, TestKeys::clientPubkey(), Timestamp::fromInt(1000), new SignEventDetail($input), AppId::fromString('app-1'));
+        return new PendingRequest($carrier, $id, TestKeys::clientPubkey(), Timestamp::fromInt(1000), new SignEventDetail($input));
     }
 
     private function clientKey(int $seed): PublicKey

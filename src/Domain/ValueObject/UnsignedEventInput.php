@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Innis\Nostr\Nip46\Domain\ValueObject;
 
 use Innis\Nostr\Core\Domain\Collection\TagCollection;
-use Innis\Nostr\Core\Domain\Factory\RumourFactory;
 use Innis\Nostr\Core\Domain\ValueObject\Content\EventContent;
 use Innis\Nostr\Core\Domain\ValueObject\Content\EventKind;
 use Innis\Nostr\Core\Domain\ValueObject\Identity\PublicKey;
@@ -44,7 +43,7 @@ final readonly class UnsignedEventInput
 
     public function toRumour(PublicKey $author, Timestamp $fallbackCreatedAt): Rumour
     {
-        return RumourFactory::createCustomKind(
+        return Rumour::draft(
             $author,
             $this->kind,
             $this->content,

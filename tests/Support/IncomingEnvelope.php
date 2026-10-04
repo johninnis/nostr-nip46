@@ -6,11 +6,11 @@ namespace Innis\Nostr\Nip46\Tests\Support;
 
 use Innis\Nostr\Core\Domain\Collection\TagCollection;
 use Innis\Nostr\Core\Domain\Entity\Event;
-use Innis\Nostr\Core\Domain\Factory\RumourFactory;
 use Innis\Nostr\Core\Domain\ValueObject\Content\EventContent;
 use Innis\Nostr\Core\Domain\ValueObject\Content\EventKind;
 use Innis\Nostr\Core\Domain\ValueObject\Identity\PublicKey;
 use Innis\Nostr\Core\Domain\ValueObject\Identity\Signature;
+use Innis\Nostr\Core\Domain\ValueObject\Protocol\Rumour;
 use Innis\Nostr\Core\Domain\ValueObject\Tag\Tag;
 use Innis\Nostr\Core\Domain\ValueObject\Timestamp;
 use Innis\Nostr\Nip46\Domain\Enum\EnvelopeCipher;
@@ -32,7 +32,7 @@ final class IncomingEnvelope
     ): Event {
         $content = FakeSigner::seal(json_encode($request, JSON_THROW_ON_ERROR), $cipher);
 
-        $rumour = RumourFactory::createCustomKind(
+        $rumour = Rumour::draft(
             $clientPubkey,
             EventKind::fromInt(EventKind::NOSTR_CONNECT),
             EventContent::fromString($content),
