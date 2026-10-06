@@ -2,9 +2,7 @@
 
 ## Status
 
-Accepted
-
-Supersedes ADR-0005. That the bunker does not verify an inbound event's signature, and takes a successful decryption under the claimed sender's conversation key as the sole proof of who sent it, is carried forward unchanged. What is revised is the statement of which decryption counts: ADR-0005 dropped an event "that decrypts under neither cipher", which described the trial decryption ADR-0022 removed. The payload now names its cipher and is decrypted once, with that cipher. This record holds the complete current decision.
+Superseded by ADR-0037. The rule below argued key custody of the payload but left `created_at` and the event id unauthenticated — a replay opening against id-based deduplication — and contradicted NIP-44's MUST that the event signature be validated before decrypting. ADR-0037 verifies the signature first.
 
 ## Context
 

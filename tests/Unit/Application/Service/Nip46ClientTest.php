@@ -8,7 +8,6 @@ use Closure;
 use Innis\Nostr\Core\Domain\Collection\RelayUrlCollection;
 use Innis\Nostr\Core\Domain\Collection\TagCollection;
 use Innis\Nostr\Core\Domain\Entity\Event;
-use Innis\Nostr\Core\Domain\Service\SignatureServiceInterface;
 use Innis\Nostr\Core\Domain\ValueObject\Content\EventContent;
 use Innis\Nostr\Core\Domain\ValueObject\Content\EventKind;
 use Innis\Nostr\Core\Domain\ValueObject\Identity\PublicKey;
@@ -29,6 +28,7 @@ use Innis\Nostr\Nip46\Domain\ValueObject\ConnectSecret;
 use Innis\Nostr\Nip46\Tests\Support\EncryptionFailureSigner;
 use Innis\Nostr\Nip46\Tests\Support\FakeSigner;
 use Innis\Nostr\Nip46\Tests\Support\FixedClock;
+use Innis\Nostr\Nip46\Tests\Support\IncomingEnvelope;
 use Innis\Nostr\Nip46\Tests\Support\InstantPendingResponses;
 use Innis\Nostr\Nip46\Tests\Support\RecordingAuthUrlListener;
 use Innis\Nostr\Nip46\Tests\Support\ScriptedBunkerTransport;
@@ -492,13 +492,58 @@ final class Nip46ClientTest extends TestCase
     public function testAnUnverifiableSignatureIsRejected(): void
     {
         $signed = self::eventAuthoredBy(TestKeys::signerPubkey());
-        [$client] = $this->clientWith($this->handshake(['sign_event' => $signed->toJson()]), verifies: false);
+
+        $sessionSigner = new FakeSigner(TestKeys::clientPubkey());
+        $sessionSigner->verifyCallback = static fn (Event $event): bool => $event->getKind()->is(EventKind::NOSTR_CONNECT);
+
+        [$client] = $this->clientWith($this->handshake(['sign_event' => $signed->toJson()]), sessionSigner: $sessionSigner);
 
         $client->connect($this->bunkerUrl());
         $result = $client->signEvent($signed->getRumour());
 
         $this->assertInstanceOf(Nip46Failure::class, $result);
         $this->assertSame(Nip46FailureReason::InvalidSignature, $result->getReason());
+    }
+
+    public function testAResponseEnvelopeWithAnInvalidSignatureIsIgnored(): void
+    {
+        $sessionSigner = new FakeSigner(TestKeys::clientPubkey());
+        $sessionSigner->verifyVerdict = false;
+
+        [$client] = $this->clientWith($this->handshake(), sessionSigner: $sessionSigner);
+
+        $result = $client->connect($this->bunkerUrl());
+
+        $this->assertInstanceOf(Nip46Failure::class, $result);
+        $this->assertSame(Nip46FailureReason::TimedOut, $result->getReason());
+    }
+
+    public function testAResponseEnvelopeWithAnInvalidSignatureDoesNotPoisonDeduplication(): void
+    {
+        $sessionSigner = new FakeSigner(TestKeys::clientPubkey());
+
+        [$client] = $this->clientWith($this->handshake(), sessionSigner: $sessionSigner);
+        $client->connect($this->bunkerUrl());
+
+        $listener = new RecordingAuthUrlListener();
+        $client->setAuthUrlListener($listener);
+
+        $envelope = IncomingEnvelope::make(
+            ['id' => 'r1', 'result' => 'auth_url', 'error' => 'https://bunker.example/authorise'],
+            TestKeys::signerPubkey(),
+            TestKeys::clientPubkey(),
+            Timestamp::fromInt(1_700_000_100),
+        );
+
+        $sessionSigner->verifyVerdict = false;
+        $client->onEvent($envelope);
+
+        $this->assertSame([], $listener->urls);
+
+        $sessionSigner->verifyVerdict = true;
+        $client->onEvent($envelope);
+
+        $this->assertSame(['https://bunker.example/authorise'], $listener->urls);
     }
 
     public function testAnAuthUrlChallengeNotifiesTheListenerWithoutCompletingTheCall(): void
@@ -622,17 +667,13 @@ final class Nip46ClientTest extends TestCase
      *
      * @return array{Nip46Client, ScriptedBunkerTransport, InstantPendingResponses}
      */
-    private function clientWith(Closure $respond, EnvelopeCipher $replyCipher = EnvelopeCipher::Nip44, bool $verifies = true, ?Nip46SignerInterface $sessionSigner = null, int $replyCopies = 1): array
+    private function clientWith(Closure $respond, EnvelopeCipher $replyCipher = EnvelopeCipher::Nip44, ?Nip46SignerInterface $sessionSigner = null, int $replyCopies = 1): array
     {
         $transport = new ScriptedBunkerTransport($respond, $replyCipher, $replyCopies);
         $pending = new InstantPendingResponses();
 
-        $signatureService = $this->createStub(SignatureServiceInterface::class);
-        $signatureService->method('verify')->willReturn($verifies);
-
         $client = new Nip46Client(
             new Nip46Channel($transport, $sessionSigner ?? new FakeSigner(TestKeys::clientPubkey()), new FixedClock(1_700_000_000)),
-            $signatureService,
             $pending,
         );
 

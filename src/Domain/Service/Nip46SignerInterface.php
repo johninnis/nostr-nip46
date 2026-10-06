@@ -15,6 +15,8 @@ interface Nip46SignerInterface
 
     public function sign(Rumour $unsigned): Event;
 
+    public function verify(Event $event): bool;
+
     public function encrypt(PublicKey $peer, string $plaintext, EnvelopeCipher $cipher): string;
 
     public function decrypt(PublicKey $peer, string $ciphertext, EnvelopeCipher $cipher): ?string;

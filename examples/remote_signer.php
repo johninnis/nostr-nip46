@@ -206,7 +206,6 @@ $pendingResponses = new class implements Nip46PendingResponsesInterface {
 
 $client = new Nip46Client(
     new Nip46Channel($clientTransport, LocalNip46Signer::create(PrivateKey::generate()), $clock),
-    Secp256k1Signer::create(),
     $pendingResponses,
 );
 

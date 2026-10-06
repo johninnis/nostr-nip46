@@ -28,7 +28,7 @@ ADR-0007 gave the client five constructor parameters: transport, session signer,
 ## Consequences
 
 - Hosts hold a `Nip46ClientInterface` and can substitute doubles; the shipped `Nip46Client` is the only implementation the package constructs.
-- A host wires `new Nip46Client(new Nip46Channel($transport, $sessionSigner, $clock), $signatureService, $pendingResponses)`.
+- A host wires `new Nip46Client(new Nip46Channel($transport, $sessionSigner, $clock), $pendingResponses)`. (The `SignatureServiceInterface` was removed by ADR-0037: all signature verification now flows through the channel's `isAuthentic`.)
 - Every public call returns its result or a `Nip46Failure`, forcing callers to handle failure in the type; hosts map `Nip46Failure` to their own exceptions or exit codes at their boundary.
 - A host that needs a NIP-46 method with no typed wrapper (`ping`, or a future extension) has no public entry point. That is the accepted cost of not shipping a general method-caller that could bypass `signEvent()`; such a method earns its own typed wrapper when a host needs it, as `logout()` has.
 - A host wanting granular status output must wrap the transport or listen at its own boundary; the client, like the bunker, does not log.

@@ -180,7 +180,6 @@ final class Nip46RoundTripTest extends TestCase
     {
         return new Nip46Client(
             new Nip46Channel($this->clientTransport, LocalNip46Signer::create($sessionKey ?? PrivateKey::generate()), $this->clock),
-            Secp256k1Signer::create(),
             new InstantPendingResponses(),
         );
     }

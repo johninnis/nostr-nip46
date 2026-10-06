@@ -80,6 +80,19 @@ final class Nip46BunkerTest extends TestCase
         $this->assertSame('pong', $this->decodeResponse()['result'] ?? null);
     }
 
+    public function testAnEnvelopeWithAnInvalidSignatureIsDroppedWithoutAReplyAndDoesNotPoisonDeduplication(): void
+    {
+        $this->signer->verifyVerdict = false;
+        $this->deliver(['id' => 'p1', 'method' => 'ping', 'params' => []]);
+
+        $this->assertSame([], $this->transport->published);
+
+        $this->signer->verifyVerdict = true;
+        $this->deliver(['id' => 'p1', 'method' => 'ping', 'params' => []]);
+
+        $this->assertSame('pong', $this->decodeResponse()['result'] ?? null);
+    }
+
     public function testGetPublicKeyBeforeConnectIsRejected(): void
     {
         $this->deliver(['id' => 'g1', 'method' => 'get_public_key', 'params' => []]);

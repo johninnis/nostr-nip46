@@ -57,6 +57,12 @@ final readonly class Nip46Channel implements Nip46ChannelInterface
         return null === $payload ? null : new DecodedEnvelope($payload, $cipher);
     }
 
+    #[Override]
+    public function isAuthentic(Event $envelope): bool
+    {
+        return $this->signer->verify($envelope);
+    }
+
     // Deliberate: a payload a cipher refuses is returned as null — the client reports it, the bunker degrades it — never thrown at a waiting peer; see ADR-0028 and ADR-0029
     #[Override]
     public function seal(PublicKey $peer, string $payloadJson, EnvelopeCipher $cipher): ?Event

@@ -8,7 +8,7 @@ Superseded by ADR-0020
 
 A host embedding the bunker may want an audit trail of what each connected app did — not only the `sign_event` requests it queued for a human, but the requests the bunker answered on its own: `connect`, `get_public_key`, the `nip04_*`/`nip44_*` crypto operations, `switch_relays`, `logout`. Those are handled and answered entirely inside `dispatch`, and nothing about them reaches the host. The host sees only the queue, through the existing queue-change listener, so it can reconstruct sign decisions but is blind to every autonomously answered request.
 
-Two forces shape how this is exposed. The bunker constructor already carries four irreducible ports and is fenced against a fifth (ADR-0006), so an audit sink must not become a constructor dependency. And the inbound request event is a confidential, sender-keyed payload whose signature the bunker deliberately does not verify and does not retain as a standalone artefact (ADR-0005): surfacing the raw event for audit would reintroduce exactly the retention that record forbids.
+Two forces shape how this is exposed. The bunker constructor already carries four irreducible ports and is fenced against a fifth (ADR-0006), so an audit sink must not become a constructor dependency. And the inbound request event is a confidential, sender-keyed payload the bunker does not retain as a standalone artefact (ADR-0005; its signature is verified before decryption since ADR-0037): surfacing the raw event for audit would reintroduce exactly the retention that rule forbids.
 
 ## Decision
 
@@ -22,6 +22,6 @@ The activity carries the app id, not the client public key: the app id is the tr
 
 - A host can maintain a per-app activity history covering every autonomously answered method, keyed by the same app id the queue attribution uses, without threading a fifth dependency into the bunker.
 - Every reported activity is attributable: the listener only ever receives an action performed by an authenticated app, so the app id is always present. A pre-`connect` `ping`, which belongs to no app, is answered but not reported.
-- The audit carries metadata only. Auditing the signed request event as a verifiable artefact remains out of scope; if that is ever needed it is ADR-0005 that must be superseded, not this record.
+- The audit carries metadata only. Auditing the signed request event as a verifiable artefact remains out of scope; if that is ever needed it is ADR-0037 that must be superseded, not this record.
 - `sign_event` never reaches the activity listener. A host that wants it in the same history records it where it decides it — at Accept/Decline — so there is one record per action and no overlap.
 - `logout` reports before the client is deauthenticated, so the action is attributed to the app that was connected; a test pins that ordering.

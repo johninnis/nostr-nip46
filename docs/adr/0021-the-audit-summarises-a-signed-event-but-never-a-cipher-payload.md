@@ -14,7 +14,7 @@ That line is too coarse, and it costs the host the single most useful fact about
 
 The blanket "no plaintext" rule reads as one confidentiality policy but is actually covering two very different payloads:
 
-- A `nip04_*` / `nip44_*` payload is **private correspondence**. The signer is a transformation step: it decrypts or encrypts bytes that belong to a conversation between the user and a counterparty, and the plaintext is never meant to leave that conversation. Retaining it in an audit log would make the signer a durable store of the user's private messages — a far worse artefact than the request it came from, and squarely what ADR-0005 is protecting.
+- A `nip04_*` / `nip44_*` payload is **private correspondence**. The signer is a transformation step: it decrypts or encrypts bytes that belong to a conversation between the user and a counterparty, and the plaintext is never meant to leave that conversation. Retaining it in an audit log would make the signer a durable store of the user's private messages — a far worse artefact than the request it came from, and squarely what the non-retention rule (ADR-0037) protects.
 - A `sign_event` payload is **the body of an event about to be signed and broadcast**. Its whole purpose is publication to relays. Recording it locally cannot disclose anything the user is not, in the same breath, asking the signer to publish under their own key.
 
 Treating these as one category is what forces the audit to be useless rather than merely careful.
@@ -33,6 +33,6 @@ Reporting the full content, not a truncated one, is deliberate: how much to keep
 
 - An audit trail distinguishes what an app actually signed, on the autonomously-answered path where the operator saw nothing. The kind is available for every signature, not only the ones that were queued.
 - A host that persists the content is choosing to keep event bodies at rest, and must bound and protect them itself. The bunker hands over the whole content precisely so that this choice is visible in the host's code rather than pre-made here.
-- ADR-0005 still stands and is still the record protecting the request event. What is surfaced is the event the client asked to have signed, reconstructed from the request it already decrypted — not the carrier event, not its signature, and not the conversation payload of a cipher request.
+- The request event is verified before decryption and still never retained (ADR-0037). What is surfaced is the event the client asked to have signed, reconstructed from the request it already decrypted — not the carrier event, not its signature, and not the conversation payload of a cipher request.
 - A reader who expects the "never any decrypted plaintext" wording of ADR-0014 will not find it. It was not narrowed by accident: the argument is that a to-be-published event body and a private message are different kinds of secret, and only the second one was ever the point.
 - If a cipher payload is ever wanted in the audit, this record is what must be superseded, and the argument above is what has to be answered.

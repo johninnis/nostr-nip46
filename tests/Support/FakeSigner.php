@@ -22,6 +22,11 @@ final class FakeSigner implements Nip46SignerInterface
     /** @var list<EnvelopeCipher> */
     private array $decryptCiphers = [];
 
+    public bool $verifyVerdict = true;
+
+    /** @var callable(Event): bool|null */
+    public $verifyCallback;
+
     public function __construct(private readonly PublicKey $publicKey)
     {
     }
@@ -40,6 +45,12 @@ final class FakeSigner implements Nip46SignerInterface
             $unsigned->getId(),
             Signature::tryFromHex(self::DUMMY_SIGNATURE_HEX) ?? throw new RuntimeException('Invalid dummy signature'),
         );
+    }
+
+    #[Override]
+    public function verify(Event $event): bool
+    {
+        return null === $this->verifyCallback ? $this->verifyVerdict : ($this->verifyCallback)($event);
     }
 
     #[Override]

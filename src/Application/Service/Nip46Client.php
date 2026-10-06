@@ -7,7 +7,6 @@ namespace Innis\Nostr\Nip46\Application\Service;
 use Innis\Nostr\Core\Domain\Collection\RelayUrlCollection;
 use Innis\Nostr\Core\Domain\Entity\Event;
 use Innis\Nostr\Core\Domain\Service\JsonWireFormat;
-use Innis\Nostr\Core\Domain\Service\SignatureServiceInterface;
 use Innis\Nostr\Core\Domain\ValueObject\Identity\PublicKey;
 use Innis\Nostr\Core\Domain\ValueObject\Protocol\Rumour;
 use Innis\Nostr\Nip46\Application\Port\Nip46AuthUrlListenerInterface;
@@ -33,7 +32,6 @@ final class Nip46Client implements Nip46ClientInterface, Nip46EventListenerInter
 
     public function __construct(
         private readonly Nip46ChannelInterface $channel,
-        private readonly SignatureServiceInterface $signatureService,
         private readonly Nip46PendingResponsesInterface $pending,
     ) {
     }
@@ -119,7 +117,7 @@ final class Nip46Client implements Nip46ClientInterface, Nip46EventListenerInter
             return Nip46Failure::identityMismatch(Nip46Method::SignEvent);
         }
 
-        if (!$signed->verify($this->signatureService)) {
+        if (!$this->channel->isAuthentic($signed)) {
             return Nip46Failure::invalidSignature(Nip46Method::SignEvent);
         }
 
@@ -185,12 +183,17 @@ final class Nip46Client implements Nip46ClientInterface, Nip46EventListenerInter
     {
         $session = $this->session;
 
-        // Deliberate: duplicates are dropped here, not left to the pending port's idempotence — an auth_url challenge bypasses that port — see ADR-0010.
-        if (null === $session || !$session->rememberSeen($event->getId())) {
+        if (null === $session) {
             return;
         }
 
         if (!$event->getPubkey()->equals($session->getRemoteSignerPubkey())) {
+            return;
+        }
+
+        // Deliberate: the signature is verified before deduplication and decryption — it is what binds created_at and the event id a replay would freshen — see ADR-0037.
+        // Deliberate: duplicates are dropped here, not left to the pending port's idempotence — an auth_url challenge bypasses that port — see ADR-0010.
+        if (!$this->channel->isAuthentic($event) || !$session->rememberSeen($event->getId())) {
             return;
         }
 

@@ -36,6 +36,12 @@ final class SigningFailureSigner implements Nip46SignerInterface
     }
 
     #[Override]
+    public function verify(Event $event): bool
+    {
+        return $this->delegate->verify($event);
+    }
+
+    #[Override]
     public function encrypt(PublicKey $peer, string $plaintext, EnvelopeCipher $cipher): string
     {
         return $this->delegate->encrypt($peer, $plaintext, $cipher);

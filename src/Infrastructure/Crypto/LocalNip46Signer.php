@@ -60,6 +60,12 @@ final readonly class LocalNip46Signer implements Nip46SignerInterface
     }
 
     #[Override]
+    public function verify(Event $event): bool
+    {
+        return $event->verify($this->signatureService);
+    }
+
+    #[Override]
     public function encrypt(PublicKey $peer, string $plaintext, EnvelopeCipher $cipher): string
     {
         return $this->ciphers->cipherFor($cipher)->encrypt($plaintext, $this->keyPair->getPrivateKey(), $peer);

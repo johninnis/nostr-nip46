@@ -20,6 +20,8 @@ interface Nip46ChannelInterface
 
     public function open(Event $envelope): ?DecodedEnvelope;
 
+    public function isAuthentic(Event $envelope): bool;
+
     public function seal(PublicKey $peer, string $payloadJson, EnvelopeCipher $cipher): ?Event;
 
     public function publish(RelayUrlCollection $relays, Event $envelope): void;

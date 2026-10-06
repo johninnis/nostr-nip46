@@ -211,7 +211,8 @@ final class Nip46Bunker implements Nip46BunkerInterface, Nip46EventListenerInter
     {
         $session = $this->session;
 
-        if (null === $session || !$session->rememberSeen($event->getId())) {
+        // Deliberate: the signature is verified before deduplication and decryption — it is what binds created_at and the event id a replay would freshen — see ADR-0037
+        if (null === $session || !$this->channel->isAuthentic($event) || !$session->rememberSeen($event->getId())) {
             return;
         }
 

@@ -4,7 +4,7 @@
 
 Accepted
 
-Supersedes ADR-0003. The single signing port, its nullable `decrypt` beside a throwing `sign` and `encrypt`, and the conversion of every outbound encryption fault to a correlated protocol error are carried forward unchanged. What is revised is the statement of the cipher's size limit, which ADR-0003 left unnamed while nostr-core's NIP-44 limit moved from 65535 bytes to a configurable maximum, and the sibling record for the client's seal, now ADR-0028; and the reason for the nullable `decrypt`, which ADR-0003 gave as the codec's trial-decryption fallback that ADR-0022 removed. This record holds the complete current decision.
+Supersedes ADR-0003. The single signing port, its nullable `decrypt` beside a throwing `sign` and `encrypt`, and the conversion of every outbound encryption fault to a correlated protocol error are carried forward unchanged. What is revised is the statement of the cipher's size limit, which ADR-0003 left unnamed while nostr-core's NIP-44 limit moved from 65535 bytes to a configurable maximum, and the sibling record for the client's seal, now ADR-0028; and the reason for the nullable `decrypt`, which ADR-0003 gave as the codec's trial-decryption fallback that ADR-0022 removed. This record holds the complete current decision. (The port's method count is amended by ADR-0037, which adds `verify` beside `sign`.)
 
 ## Context
 

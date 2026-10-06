@@ -55,6 +55,14 @@ Provide four things and the bunker handles the protocol.
 
 **1. A signer** — `LocalNip46Signer` for a key held in process (for a self-hosted signer, the key decrypted from a NIP-49 `ncryptsec` at unlock), or your own `Nip46SignerInterface` implementation over whatever holds the key. The channel's signer is the remote-signer key the `bunker://` URL advertises; the capability gate's signer is the user's key. NIP-46 lets them differ; pass the same signer to both for the usual single-key bunker.
 
+Implementing `Nip46SignerInterface` by hand carries five contracts:
+
+- `publicKey()` returns the key the signer acts as.
+- `sign(rumour)` returns the signed event, throwing if the key cannot sign.
+- `verify(event)` answers whether the event is authentic — its id matches its serialised fields and its Schnorr signature verifies against that id, exactly as NIP-01 defines — and never throws: any internal failure is `false`. It needs none of the signer's key material; delegate to nostr-core's `SignatureServiceInterface` (`$event->verify($signatureService)`), which is what `LocalNip46Signer` does. Returning a constant here disables the inbound-envelope authentication of `docs/adr/0037` — do not.
+- `encrypt(peer, plaintext, cipher)` returns the ciphertext, throwing on a payload the cipher refuses (empty or over-long).
+- `decrypt(peer, ciphertext, cipher)` returns the plaintext, or `null` — never throws — when the ciphertext does not decrypt under the given cipher; an undecryptable inbound envelope is an anticipated outcome, not a fault.
+
 **2. A transport** — implement `Nip46TransportInterface` to subscribe and publish on your relays.
 
 **3. An authenticator** — implement `Nip46AuthenticatorInterface` to decide whether a client's `connect` secret (a `?ConnectSecret` — `null` when the client sent none) is currently valid. Accepting one secret per named pairing — one per app, one per device — is what lets you run many pairings off one signer; which secret mapped to which pairing stays in your store.
@@ -117,7 +125,6 @@ Provide a transport (the same port as the bunker), a throwaway session key, and 
 
 ```php
 use Innis\Nostr\Core\Domain\ValueObject\Identity\PrivateKey;
-use Innis\Nostr\Core\Infrastructure\Crypto\Secp256k1Signer;
 use Innis\Nostr\Core\Infrastructure\Time\SystemClock;
 use Innis\Nostr\Nip46\Application\Service\Nip46Channel;
 use Innis\Nostr\Nip46\Application\Service\Nip46Client;
@@ -130,10 +137,9 @@ use Innis\Nostr\Nip46\Infrastructure\Crypto\LocalNip46Signer;
 $client = new Nip46Client(
     new Nip46Channel(
         $transport,                                     // your Nip46TransportInterface
-        LocalNip46Signer::create(PrivateKey::generate()), // ephemeral session key
+        LocalNip46Signer::create(PrivateKey::generate()), // ephemeral session key; also verifies inbound events
         new SystemClock(),
     ),
-    Secp256k1Signer::create(),                      // verifies returned events
     $pendingResponses,                              // your Nip46PendingResponsesInterface
 );
 
