@@ -33,6 +33,7 @@ use Innis\Nostr\Nip46\Tests\Support\FixedClock;
 use Innis\Nostr\Nip46\Tests\Support\IncomingEnvelope;
 use Innis\Nostr\Nip46\Tests\Support\InstantPendingResponses;
 use Innis\Nostr\Nip46\Tests\Support\RecordingAuthUrlListener;
+use Innis\Nostr\Nip46\Tests\Support\ScheduledPendingResponses;
 use Innis\Nostr\Nip46\Tests\Support\ScriptedBunkerTransport;
 use Innis\Nostr\Nip46\Tests\Support\TestKeys;
 use LogicException;
@@ -44,6 +45,9 @@ final class Nip46ClientTest extends TestCase
 {
     private const string SECRET = 'topsecret';
     private const string NOT_A_WEB_URL = 'bunker sent an authentication URL that is not a web URL';
+    private const float TIMEOUT_SECONDS = 30.0;
+    private const array CHALLENGE = ['result' => 'auth_url', 'error' => 'https://bunker.example/authorise'];
+    private const array REPLY = ['result' => 'sealed'];
 
     public function testConnectReturnsTheUserPublicKey(): void
     {
@@ -728,6 +732,55 @@ final class Nip46ClientTest extends TestCase
         $this->assertSame('bunker requires authentication: https://bunker.example/authorise', $result->getDetail());
     }
 
+    public function testAReplyAfterTheTimeoutButWithinTheApprovalWindowSettlesAChallengedRequest(): void
+    {
+        $result = $this->encryptAnsweredAt([10 => self::CHALLENGE, 100 => self::REPLY]);
+
+        $this->assertSame('sealed', $result);
+    }
+
+    public function testAChallengedRequestStillUnansweredWhenTheApprovalWindowClosesTimesOut(): void
+    {
+        $result = $this->encryptAnsweredAt([10 => self::CHALLENGE]);
+
+        $this->assertSame(Nip46FailureReason::TimedOut, $result instanceof Nip46Failure ? $result->getReason() : null);
+    }
+
+    public function testAReplyJustInsideTheDefaultFiveMinuteApprovalWindowSettlesTheRequest(): void
+    {
+        $result = $this->encryptAnsweredAt([10 => self::CHALLENGE, 309 => self::REPLY]);
+
+        $this->assertSame('sealed', $result);
+    }
+
+    public function testAReplyJustOutsideTheDefaultFiveMinuteApprovalWindowArrivesTooLate(): void
+    {
+        $result = $this->encryptAnsweredAt([10 => self::CHALLENGE, 311 => self::REPLY]);
+
+        $this->assertSame(Nip46FailureReason::TimedOut, $result instanceof Nip46Failure ? $result->getReason() : null);
+    }
+
+    public function testAFurtherChallengeRestartsTheApprovalWindow(): void
+    {
+        $result = $this->encryptAnsweredAt([10 => self::CHALLENGE, 250 => self::CHALLENGE, 400 => self::REPLY]);
+
+        $this->assertSame('sealed', $result);
+    }
+
+    public function testARequestNoChallengeAnsweredTimesOutAtTheRequestTimeoutNotTheApprovalWindow(): void
+    {
+        $result = $this->encryptAnsweredAt([100 => self::REPLY]);
+
+        $this->assertSame(Nip46FailureReason::TimedOut, $result instanceof Nip46Failure ? $result->getReason() : null);
+    }
+
+    public function testTheApprovalWindowIsConfigurable(): void
+    {
+        $result = $this->encryptAnsweredAt([10 => self::CHALLENGE, 400 => self::REPLY], 600.0);
+
+        $this->assertSame('sealed', $result);
+    }
+
     public function testARequestTheCipherCannotCarryIsAReturnedFailure(): void
     {
         [$client] = $this->clientWith(
@@ -990,6 +1043,28 @@ final class Nip46ClientTest extends TestCase
             TestKeys::clientPubkey(),
             Timestamp::fromInt($createdAt),
         );
+    }
+
+    /**
+     * @param array<int, array<string, string>> $answers what the bunker answers, keyed by the seconds after the request is sent
+     */
+    private function encryptAnsweredAt(array $answers, ?float $approvalWindowSeconds = null): string|Nip46Failure
+    {
+        $pending = new ScheduledPendingResponses();
+        $transport = new ScriptedBunkerTransport(static function (array $request, ScriptedBunkerTransport $transport) use ($answers, $pending): ?array {
+            foreach ($answers as $seconds => $answer) {
+                $envelope = IncomingEnvelope::make(['id' => $request['id'], ...$answer], TestKeys::signerPubkey(), TestKeys::clientPubkey(), Timestamp::fromInt(1_700_000_000 + $seconds));
+                $pending->after($seconds, static fn () => $transport->deliver($envelope));
+            }
+
+            return null;
+        });
+        $channel = new Nip46Channel($transport, new FakeSigner(TestKeys::clientPubkey()), new FixedClock(1_700_000_000));
+        $client = null === $approvalWindowSeconds ? new Nip46Client($channel, $pending) : new Nip46Client($channel, $pending, $approvalWindowSeconds);
+        $client->setAuthUrlListener(new RecordingAuthUrlListener());
+        $client->resume($this->resumedBunkerUrl(), TestKeys::signerPubkey());
+
+        return $client->nip44Encrypt(TestKeys::clientPubkey(), 'hello', self::TIMEOUT_SECONDS);
     }
 
     private function signEventAnsweredWith(Rumour $returned, ?Nip46SignerInterface $sessionSigner = null): Event|Nip46Failure

@@ -12,11 +12,12 @@ Shipping a default implementation would drag an event-loop dependency into a pro
 
 ## Decision
 
-Correlating and awaiting responses sits behind two driven ports: `Nip46PendingResponsesInterface` (open a slot for a request id; complete a slot from an arriving response, ignoring unknown or already-completed ids) and `Nip46PendingResponseInterface` (await with a timeout, yielding the response or `null`). The package ships **no** implementation and carries no concurrency dependency; each host implements the pair on its own runtime.
+Correlating and awaiting responses sits behind two driven ports: `Nip46PendingResponsesInterface` (open a slot for a request id; complete a slot from an arriving response, ignoring unknown or already-completed ids; restart the timeout of a slot's await, a restart made before the await begins replacing the timeout it is then given) and `Nip46PendingResponseInterface` (await with a timeout, yielding the response or `null`). The package ships **no** implementation and carries no concurrency dependency; each host implements the pair on its own runtime.
 
 ## Consequences
 
 - The package's dependencies stay at `innis/nostr-core` alone.
 - Every client host writes a small implementation on its own runtime; that duplication across hosts is accepted as the price of a runtime-agnostic package. If several hosts on the same runtime accumulate, the implementation belongs in a runtime-specific package, not here.
 - An implementation must treat `complete()` as idempotent — duplicate response events from multiple relays are normal. The client forwards only a response to a request it is still awaiting (ADR-0033), so a response arriving after a timeout never reaches the port; a timed-out await must still abandon its slot rather than leave a future no one holds.
+- The client restarts a slot's timeout when an `auth_url` challenge reaches its listener (ADR-0036), so an implementation's timeout must be restartable, not a fixed timer set once when the await begins.
 - Package tests and the example drive `Nip46Client` with synchronous in-memory implementations; no event loop runs in this repository.

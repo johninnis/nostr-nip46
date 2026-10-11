@@ -39,6 +39,7 @@ final class Nip46Client implements Nip46ClientInterface, Nip46EventListenerInter
     public function __construct(
         private readonly Nip46ChannelInterface $channel,
         private readonly Nip46PendingResponsesInterface $pending,
+        private readonly float $approvalWindowSeconds = self::DEFAULT_APPROVAL_WINDOW_SECONDS,
     ) {
     }
 
@@ -230,12 +231,13 @@ final class Nip46Client implements Nip46ClientInterface, Nip46EventListenerInter
         $this->pending->complete($response);
     }
 
-    // Deliberate: only a web URL reaches a registered listener and the request waits; any other challenge completes the request, which fails at once — see ADR-0013 and ADR-0036
+    // Deliberate: only a web URL reaches a registered listener and the request waits, its timeout restarted as the approval window; any other challenge completes the request, which fails at once — see ADR-0013 and ADR-0036
     private function challenge(Nip46Response $challenge): void
     {
         $url = $challenge->getAuthUrl();
 
         if (null !== $url && null !== $this->authUrlListener) {
+            $this->pending->restartTimeout($challenge->getId(), $this->approvalWindowSeconds);
             $this->authUrlListener->onAuthUrl($url);
 
             return;

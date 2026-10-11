@@ -171,7 +171,7 @@ $bunker->setSecretListener(new class implements Nip46SecretListenerInterface {
 $bunkerUrl = $bunker->bunkerUrlFor($secret) ?? exit("bunker not started\n");
 echo 'Bunker URL to paste into a client:'.PHP_EOL.'  '.$bunkerUrl.PHP_EOL.PHP_EOL;
 
-/** The loopback wire answers synchronously, so awaiting is a simple in-memory lookup. */
+/** The loopback wire answers synchronously, so awaiting is a simple in-memory lookup and no timeout ever runs to restart. */
 $pendingResponses = new class implements Nip46PendingResponsesInterface {
     /** @var array<string, Nip46Response> */
     public array $completed = [];
@@ -201,6 +201,11 @@ $pendingResponses = new class implements Nip46PendingResponsesInterface {
     public function complete(Nip46Response $response): void
     {
         $this->completed[(string) $response->getId()] = $response;
+    }
+
+    #[Override]
+    public function restartTimeout(RequestId $requestId, float $timeoutSeconds): void
+    {
     }
 };
 

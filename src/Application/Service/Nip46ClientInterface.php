@@ -17,6 +17,8 @@ interface Nip46ClientInterface
 {
     public const float DEFAULT_TIMEOUT_SECONDS = 30.0;
 
+    public const float DEFAULT_APPROVAL_WINDOW_SECONDS = 300.0;
+
     public function connect(BunkerUrl $bunker, ?ClientMetadata $metadata = null, float $timeoutSeconds = self::DEFAULT_TIMEOUT_SECONDS): PublicKey|Nip46Failure;
 
     public function resume(BunkerUrl $bunker, PublicKey $userPublicKey): void;

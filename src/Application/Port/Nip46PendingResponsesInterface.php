@@ -12,4 +12,6 @@ interface Nip46PendingResponsesInterface
     public function open(RequestId $requestId): Nip46PendingResponseInterface;
 
     public function complete(Nip46Response $response): void;
+
+    public function restartTimeout(RequestId $requestId, float $timeoutSeconds): void;
 }

@@ -45,6 +45,11 @@ final class InstantPendingResponses implements Nip46PendingResponsesInterface
         $this->completed[(string) $response->getId()] = $response;
     }
 
+    #[Override]
+    public function restartTimeout(RequestId $requestId, float $timeoutSeconds): void
+    {
+    }
+
     public function take(string $requestId): ?Nip46Response
     {
         $response = $this->completed[$requestId] ?? null;
