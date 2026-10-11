@@ -22,3 +22,4 @@ A pending sign request's identity is the id of the carrier event that delivered 
 - `PendingSignRequest` carries two ids, and a reader will be tempted to merge them. The split is the point — one is the queue identity, the other is wire correlation — and the fence at the value object points here, backed by a test that queues two requests sharing a request id.
 - The response a client receives still carries exactly the id it chose; nothing about this decision is visible on the wire.
 - A redelivered carrier event is dropped by the seen-id set before it reaches the queue, so keying by carrier id cannot double-queue a redelivery.
+- Shared decision: nostr-adrs ADR-0052.

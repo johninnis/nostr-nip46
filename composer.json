@@ -20,7 +20,7 @@
     ],
     "require": {
         "php": "^8.4",
-        "innis/nostr-core": "^0.9"
+        "innis/nostr-core": "^0.10"
     },
     "require-dev": {
         "ext-ffi": "*",

@@ -17,6 +17,7 @@ Matching words in free text reads as a fragile hack, and a reviewer will want to
 - `UserRejectionMatcher::matches` is the one place that decides whether a bunker's `error` is a decline. It matches the whole words `rejected`, `denied`, `cancel`, `canceled` and `cancelled`, case-insensitively.
 - The client returns a matching `error` as `Nip46Failure` with reason `Rejected`, and any other `error` as reason `SignerError`. Both carry the error text as their detail.
 - This package's bunker declines on its operator's behalf with `user rejected` (`Nip46Bunker::reject`), which the matcher recognises.
+- The matcher reads only an error the bunker sent. A failure the client writes itself, such as an authentication challenge it cannot open (ADR-0013, ADR-0036), never goes through it.
 
 ## Consequences
 

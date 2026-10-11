@@ -5,52 +5,39 @@ declare(strict_types=1);
 namespace Innis\Nostr\Nip46\Tests\Unit\Domain\ValueObject;
 
 use Innis\Nostr\Nip46\Domain\ValueObject\AuthUrl;
+use Innis\Nostr\Nip46\Tests\Support\AuthUrlVectors;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class AuthUrlTest extends TestCase
 {
-    public function testAcceptsAnHttpsUrl(): void
+    private const int SHARED_VECTOR_COUNT = 71;
+
+    public function testLoadsEverySharedVector(): void
     {
-        $this->assertSame(
-            'https://bunker.example/authorise?request=1',
-            (string) AuthUrl::tryFromString('https://bunker.example/authorise?request=1'),
-        );
+        $this->assertCount(self::SHARED_VECTOR_COUNT, AuthUrlVectors::all());
     }
 
-    public function testAcceptsAnHttpUrl(): void
+    #[DataProvider('sharedVectorsCarryingAUrl')]
+    public function testKeepsEachSharedVectorsUrlExactlyAsReceivedOrRefusesIt(string $error, ?string $handedOver): void
     {
-        $this->assertSame('http://bunker.example/', (string) AuthUrl::tryFromString('http://bunker.example/'));
-    }
-
-    public function testAcceptsAnUppercaseScheme(): void
-    {
-        $this->assertNotNull(AuthUrl::tryFromString('HTTPS://bunker.example/authorise'));
-    }
-
-    public function testTrimsSurroundingWhitespace(): void
-    {
-        $this->assertSame('https://bunker.example/', (string) AuthUrl::tryFromString("  https://bunker.example/\n"));
-    }
-
-    #[DataProvider('rejectedValues')]
-    public function testRejectsANonWebUrl(string $raw): void
-    {
-        $this->assertNull(AuthUrl::tryFromString($raw));
+        $this->assertSame($handedOver, AuthUrl::tryFromString($error)?->__toString());
     }
 
     /**
-     * @return iterable<string, array{string}>
+     * @return iterable<string, array{string, ?string}>
      */
-    public static function rejectedValues(): iterable
+    public static function sharedVectorsCarryingAUrl(): iterable
     {
-        yield 'empty' => [''];
-        yield 'javascript scheme' => ['javascript:alert(1)'];
-        yield 'data scheme' => ['data:text/html,<script>alert(1)</script>'];
-        yield 'file scheme' => ['file:///etc/passwd'];
-        yield 'websocket scheme' => ['wss://relay.example.com'];
-        yield 'scheme-less' => ['bunker.example/authorise'];
-        yield 'scheme without host' => ['https://'];
-        yield 'not a url' => ['open sesame'];
+        foreach (AuthUrlVectors::cases() as $name => [$error, $handedOver]) {
+            if (null !== $error) {
+                yield $name => [$error, $handedOver];
+            }
+        }
+    }
+
+    public function testRefusesAStringThatIsNotUtf8(): void
+    {
+        $this->assertNull(AuthUrl::tryFromString("https://bunker.example/\xFF"));
     }
 }

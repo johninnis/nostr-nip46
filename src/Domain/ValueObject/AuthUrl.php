@@ -9,8 +9,10 @@ use Stringable;
 
 final readonly class AuthUrl implements Stringable
 {
-    // Deliberate: http(s)-only, stricter than the spec's bare "URL" — the host opens this in a browser and a bunker-supplied javascript:/data:/file: URI must never reach it — see ADR-0013
-    private const array ALLOWED_SCHEMES = ['http', 'https'];
+    // Deliberate: judged on the string, not by a URL parser, and kept exactly as received — http(s), a host with no credentials and at most a decimal port, and no whitespace, control character or backslash anywhere — see ADR-0013
+    private const string WEB_URL = '~\A[Hh][Tt][Tt][Pp][Ss]?://[^/?#@:]+(?::[0-9]+)?(?:[/?#].*)?\z~su';
+
+    private const string FORBIDDEN_CHARACTER = '~[\p{White_Space}\p{Cc}\\\\]~u';
 
     private function __construct(private string $url)
     {
@@ -18,20 +20,9 @@ final readonly class AuthUrl implements Stringable
 
     public static function tryFromString(string $raw): ?self
     {
-        $trimmed = trim($raw);
-
-        $scheme = parse_url($trimmed, PHP_URL_SCHEME);
-        $host = parse_url($trimmed, PHP_URL_HOST);
-
-        if (!is_string($scheme) || !in_array(strtolower($scheme), self::ALLOWED_SCHEMES, true)) {
-            return null;
-        }
-
-        if (!is_string($host) || '' === $host) {
-            return null;
-        }
-
-        return new self($trimmed);
+        return 1 === preg_match(self::WEB_URL, $raw) && 0 === preg_match(self::FORBIDDEN_CHARACTER, $raw)
+            ? new self($raw)
+            : null;
     }
 
     #[Override]

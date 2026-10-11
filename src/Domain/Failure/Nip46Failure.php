@@ -61,6 +61,11 @@ final readonly class Nip46Failure
         return new self(Nip46FailureReason::IdentityMismatch, $method);
     }
 
+    public static function templateMismatch(Nip46Method $method): self
+    {
+        return new self(Nip46FailureReason::TemplateMismatch, $method);
+    }
+
     public static function invalidSignature(Nip46Method $method): self
     {
         return new self(Nip46FailureReason::InvalidSignature, $method);
@@ -75,6 +80,7 @@ final readonly class Nip46Failure
             Nip46FailureReason::SignerError => sprintf('the remote signer could not complete "%s": %s', $this->method->value, $this->detail ?? 'no reason given'),
             Nip46FailureReason::InvalidResponse => sprintf('the remote signer returned an invalid response to "%s"', $this->method->value),
             Nip46FailureReason::IdentityMismatch => sprintf('the remote signer answered "%s" with an event authored by a different identity', $this->method->value),
+            Nip46FailureReason::TemplateMismatch => sprintf('the remote signer answered "%s" with an event other than the one requested', $this->method->value),
             Nip46FailureReason::InvalidSignature => sprintf('the remote signer answered "%s" with an event that fails signature verification', $this->method->value),
         };
     }

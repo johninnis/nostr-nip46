@@ -10,6 +10,7 @@ use Innis\Nostr\Core\Domain\ValueObject\Identity\PublicKey;
 use Innis\Nostr\Nip46\Domain\Enum\EnvelopeCipher;
 use Innis\Nostr\Nip46\Domain\ValueObject\BunkerUrl;
 use Innis\Nostr\Nip46\Domain\ValueObject\ConnectSecret;
+use Innis\Nostr\Nip46\Domain\ValueObject\RequestId;
 
 final class ClientSession
 {
@@ -18,6 +19,9 @@ final class ClientSession
     private ?PublicKey $userPublicKey = null;
 
     private RelayUrlCollection $relays;
+
+    /** @var array<string, true> */
+    private array $awaitedRequests = [];
 
     public function __construct(
         private readonly BunkerUrl $bunker,
@@ -29,6 +33,21 @@ final class ClientSession
     public function rememberSeen(EventId $eventId): bool
     {
         return $this->seenEventIds->remember($eventId);
+    }
+
+    public function awaitResponseTo(RequestId $requestId): void
+    {
+        $this->awaitedRequests[(string) $requestId] = true;
+    }
+
+    public function stopAwaiting(RequestId $requestId): void
+    {
+        unset($this->awaitedRequests[(string) $requestId]);
+    }
+
+    public function isAwaiting(RequestId $requestId): bool
+    {
+        return isset($this->awaitedRequests[(string) $requestId]);
     }
 
     public function getRemoteSignerPubkey(): PublicKey

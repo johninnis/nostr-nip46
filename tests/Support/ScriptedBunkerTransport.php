@@ -34,8 +34,8 @@ final class ScriptedBunkerTransport implements Nip46TransportInterface
     private ?Nip46EventListenerInterface $listener = null;
 
     /**
-     * @param Closure(array<mixed>): ?array<string, mixed> $respond     takes the decoded request, returns the response wire array or null for silence
-     * @param int                                          $replyCopies how many identical copies of each reply to deliver, as relays redelivering one event would
+     * @param Closure(array<mixed>, self): ?array<string, mixed> $respond     takes the decoded request and this transport, returns the response wire array or null for silence
+     * @param int                                                $replyCopies how many identical copies of each reply to deliver, as relays redelivering one event would
      */
     public function __construct(
         private readonly Closure $respond,
@@ -79,7 +79,7 @@ final class ScriptedBunkerTransport implements Nip46TransportInterface
             return;
         }
 
-        $response = ($this->respond)(self::openRequest($event));
+        $response = ($this->respond)(self::openRequest($event), $this);
 
         if (null === $response) {
             return;
@@ -96,6 +96,11 @@ final class ScriptedBunkerTransport implements Nip46TransportInterface
         for ($copy = 0; $copy < $this->replyCopies; ++$copy) {
             $listener->onEvent($reply);
         }
+    }
+
+    public function deliver(Event $event): void
+    {
+        $this->listener?->onEvent($event);
     }
 
     /**

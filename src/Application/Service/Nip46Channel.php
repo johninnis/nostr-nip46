@@ -26,6 +26,8 @@ use Throwable;
 
 final readonly class Nip46Channel implements Nip46ChannelInterface
 {
+    public const int FRESHNESS_WINDOW_SECONDS = 600;
+
     public function __construct(
         private Nip46TransportInterface $transport,
         private Nip46SignerInterface $signer,
@@ -61,6 +63,13 @@ final readonly class Nip46Channel implements Nip46ChannelInterface
     public function isAuthentic(Event $envelope): bool
     {
         return $this->signer->verify($envelope);
+    }
+
+    // Deliberate: an envelope more than ten minutes from the clock is stale — the seen-set forgets, so this window is what bounds a replay — see ADR-0040
+    #[Override]
+    public function isFresh(Event $envelope): bool
+    {
+        return $envelope->getCreatedAt()->isWithinSecondsOf($this->clock->now(), self::FRESHNESS_WINDOW_SECONDS);
     }
 
     // Deliberate: a payload a cipher refuses is returned as null — the client reports it, the bunker degrades it — never thrown at a waiting peer; see ADR-0028 and ADR-0029

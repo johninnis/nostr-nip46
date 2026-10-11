@@ -14,6 +14,7 @@ use Innis\Nostr\Core\Domain\ValueObject\Identity\PublicKey;
 use Innis\Nostr\Core\Domain\ValueObject\Identity\Signature;
 use Innis\Nostr\Core\Domain\ValueObject\Protocol\RelayUrl;
 use Innis\Nostr\Core\Domain\ValueObject\Protocol\Rumour;
+use Innis\Nostr\Core\Domain\ValueObject\Tag\Tag;
 use Innis\Nostr\Core\Domain\ValueObject\Timestamp;
 use Innis\Nostr\Nip46\Application\Service\Nip46Channel;
 use Innis\Nostr\Nip46\Application\Service\Nip46Client;
@@ -25,6 +26,7 @@ use Innis\Nostr\Nip46\Domain\Service\Nip46SignerInterface;
 use Innis\Nostr\Nip46\Domain\ValueObject\BunkerUrl;
 use Innis\Nostr\Nip46\Domain\ValueObject\ClientMetadata;
 use Innis\Nostr\Nip46\Domain\ValueObject\ConnectSecret;
+use Innis\Nostr\Nip46\Tests\Support\AuthUrlVectors;
 use Innis\Nostr\Nip46\Tests\Support\EncryptionFailureSigner;
 use Innis\Nostr\Nip46\Tests\Support\FakeSigner;
 use Innis\Nostr\Nip46\Tests\Support\FixedClock;
@@ -34,12 +36,14 @@ use Innis\Nostr\Nip46\Tests\Support\RecordingAuthUrlListener;
 use Innis\Nostr\Nip46\Tests\Support\ScriptedBunkerTransport;
 use Innis\Nostr\Nip46\Tests\Support\TestKeys;
 use LogicException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
 final class Nip46ClientTest extends TestCase
 {
     private const string SECRET = 'topsecret';
+    private const string NOT_A_WEB_URL = 'bunker sent an authentication URL that is not a web URL';
 
     public function testConnectReturnsTheUserPublicKey(): void
     {
@@ -505,6 +509,104 @@ final class Nip46ClientTest extends TestCase
         $this->assertSame(Nip46FailureReason::InvalidSignature, $result->getReason());
     }
 
+    public function testSignEventSendsOnlyTheTemplatesKindCreatedAtTagsAndContent(): void
+    {
+        $sent = null;
+        $respond = function (array $request) use (&$sent): ?array {
+            if ('sign_event' === $request['method']) {
+                $sent = $request['params'];
+            }
+
+            return ($this->handshake())($request);
+        };
+        [$client] = $this->clientWith($respond);
+        $client->connect($this->bunkerUrl());
+
+        $client->signEvent(self::template());
+
+        $this->assertSame(['{"kind":1,"created_at":1700000000,"tags":[["t","nostr"],["e","'.str_repeat('a', 64).'","wss://relay.example"]],"content":"gm"}'], $sent);
+    }
+
+    public function testASignedEventOfAnotherKindIsRefused(): void
+    {
+        $template = self::template();
+
+        $result = $this->signEventAnsweredWith(Rumour::draft($template->getPubkey(), EventKind::fromInt(EventKind::REACTION), $template->getContent(), $template->getTags(), $template->getCreatedAt()));
+
+        $this->assertSame(Nip46FailureReason::TemplateMismatch, $result instanceof Nip46Failure ? $result->getReason() : null);
+    }
+
+    public function testASignedEventWithOtherContentIsRefused(): void
+    {
+        $template = self::template();
+
+        $result = $this->signEventAnsweredWith(Rumour::draft($template->getPubkey(), $template->getKind(), EventContent::fromString('gn'), $template->getTags(), $template->getCreatedAt()));
+
+        $this->assertSame(Nip46FailureReason::TemplateMismatch, $result instanceof Nip46Failure ? $result->getReason() : null);
+    }
+
+    public function testASignedEventWithAnotherTimestampIsRefused(): void
+    {
+        $result = $this->signEventAnsweredWith(self::template()->withCreatedAt(Timestamp::fromInt(1_700_000_001)));
+
+        $this->assertSame(Nip46FailureReason::TemplateMismatch, $result instanceof Nip46Failure ? $result->getReason() : null);
+    }
+
+    public function testASignedEventWithItsTagsReorderedIsRefused(): void
+    {
+        $result = $this->signEventAnsweredWith(self::templateTagged([['e', str_repeat('a', 64), 'wss://relay.example'], ['t', 'nostr']]));
+
+        $this->assertSame(Nip46FailureReason::TemplateMismatch, $result instanceof Nip46Failure ? $result->getReason() : null);
+    }
+
+    public function testASignedEventWithATagLengthenedIsRefused(): void
+    {
+        $result = $this->signEventAnsweredWith(self::templateTagged([['t', 'nostr', ''], ['e', str_repeat('a', 64), 'wss://relay.example']]));
+
+        $this->assertSame(Nip46FailureReason::TemplateMismatch, $result instanceof Nip46Failure ? $result->getReason() : null);
+    }
+
+    public function testASignedEventWithATagValueChangedIsRefused(): void
+    {
+        $result = $this->signEventAnsweredWith(self::templateTagged([['t', 'Nostr'], ['e', str_repeat('a', 64), 'wss://relay.example']]));
+
+        $this->assertSame(Nip46FailureReason::TemplateMismatch, $result instanceof Nip46Failure ? $result->getReason() : null);
+    }
+
+    public function testASignedEventWithATagAddedIsRefused(): void
+    {
+        $result = $this->signEventAnsweredWith(self::templateTagged([['t', 'nostr'], ['e', str_repeat('a', 64), 'wss://relay.example'], ['client', 'bunker']]));
+
+        $this->assertSame(Nip46FailureReason::TemplateMismatch, $result instanceof Nip46Failure ? $result->getReason() : null);
+    }
+
+    public function testASignedEventMatchingTheTemplateIsReturned(): void
+    {
+        $result = $this->signEventAnsweredWith(self::template());
+
+        $this->assertInstanceOf(Event::class, $result);
+    }
+
+    public function testTheAuthorIsCheckedBeforeTheTemplate(): void
+    {
+        $template = self::template();
+
+        $result = $this->signEventAnsweredWith(Rumour::draft(TestKeys::clientPubkey(), $template->getKind(), EventContent::fromString('gn'), $template->getTags(), $template->getCreatedAt()));
+
+        $this->assertSame(Nip46FailureReason::IdentityMismatch, $result instanceof Nip46Failure ? $result->getReason() : null);
+    }
+
+    public function testTheTemplateIsCheckedBeforeTheSignature(): void
+    {
+        $template = self::template();
+        $sessionSigner = new FakeSigner(TestKeys::clientPubkey());
+        $sessionSigner->verifyCallback = static fn (Event $event): bool => $event->getKind()->is(EventKind::NOSTR_CONNECT);
+
+        $result = $this->signEventAnsweredWith(Rumour::draft($template->getPubkey(), $template->getKind(), EventContent::fromString('gn'), $template->getTags(), $template->getCreatedAt()), $sessionSigner);
+
+        $this->assertSame(Nip46FailureReason::TemplateMismatch, $result instanceof Nip46Failure ? $result->getReason() : null);
+    }
+
     public function testAResponseEnvelopeWithAnInvalidSignatureIsIgnored(): void
     {
         $sessionSigner = new FakeSigner(TestKeys::clientPubkey());
@@ -521,29 +623,77 @@ final class Nip46ClientTest extends TestCase
     public function testAResponseEnvelopeWithAnInvalidSignatureDoesNotPoisonDeduplication(): void
     {
         $sessionSigner = new FakeSigner(TestKeys::clientPubkey());
-
-        [$client] = $this->clientWith($this->handshake(), sessionSigner: $sessionSigner);
-        $client->connect($this->bunkerUrl());
-
+        $client = $this->clientDeliveringDuringARequest(static function (ScriptedBunkerTransport $transport, mixed $requestId) use ($sessionSigner): void {
+            $envelope = self::challengeEnvelope($requestId, 1_700_000_100);
+            $sessionSigner->verifyVerdict = false;
+            $transport->deliver($envelope);
+            $sessionSigner->verifyVerdict = true;
+            $transport->deliver($envelope);
+        }, $sessionSigner);
         $listener = new RecordingAuthUrlListener();
         $client->setAuthUrlListener($listener);
 
-        $envelope = IncomingEnvelope::make(
-            ['id' => 'r1', 'result' => 'auth_url', 'error' => 'https://bunker.example/authorise'],
-            TestKeys::signerPubkey(),
-            TestKeys::clientPubkey(),
-            Timestamp::fromInt(1_700_000_100),
-        );
-
-        $sessionSigner->verifyVerdict = false;
-        $client->onEvent($envelope);
-
-        $this->assertSame([], $listener->urls);
-
-        $sessionSigner->verifyVerdict = true;
-        $client->onEvent($envelope);
+        $client->nip44Encrypt(TestKeys::clientPubkey(), 'hello');
 
         $this->assertSame(['https://bunker.example/authorise'], $listener->urls);
+    }
+
+    public function testAChallengeAnsweringNoAwaitedRequestIsNotSurfaced(): void
+    {
+        [$client] = $this->clientWith($this->handshake());
+        $client->connect($this->bunkerUrl());
+        $listener = new RecordingAuthUrlListener();
+        $client->setAuthUrlListener($listener);
+
+        $client->onEvent(self::challengeEnvelope('r1', 1_700_000_100));
+
+        $this->assertSame([], $listener->urls);
+    }
+
+    public function testAResponseToNoAwaitedRequestIsNotCompleted(): void
+    {
+        [$client, , $pending] = $this->clientWith($this->handshake());
+        $client->connect($this->bunkerUrl());
+
+        $client->onEvent(IncomingEnvelope::make(['id' => 'r1', 'result' => 'pong'], TestKeys::signerPubkey(), TestKeys::clientPubkey(), Timestamp::fromInt(1_700_000_100)));
+
+        $this->assertNull($pending->take('r1'));
+    }
+
+    public function testAResponseArrivingAfterItsRequestTimedOutIsNotCompleted(): void
+    {
+        $timedOutId = null;
+        $respond = function (array $request) use (&$timedOutId): ?array {
+            if ('nip44_encrypt' === $request['method']) {
+                $timedOutId = $request['id'];
+
+                return null;
+            }
+
+            return ($this->handshake())($request);
+        };
+        [$client, , $pending] = $this->clientWith($respond);
+        $client->connect($this->bunkerUrl());
+        $client->nip44Encrypt(TestKeys::clientPubkey(), 'hello');
+
+        $client->onEvent(IncomingEnvelope::make(['id' => $timedOutId, 'result' => 'late'], TestKeys::signerPubkey(), TestKeys::clientPubkey(), Timestamp::fromInt(1_700_000_100)));
+
+        $this->assertNull($pending->take(is_string($timedOutId) ? $timedOutId : ''));
+    }
+
+    public function testAResponseMoreThanTenMinutesOldIsIgnored(): void
+    {
+        $this->assertSame([], $this->challengeUrlsSurfacedFromAnEnvelopeCreatedAt(1_700_000_000 - 601));
+    }
+
+    public function testAResponseMoreThanTenMinutesAheadIsIgnored(): void
+    {
+        $this->assertSame([], $this->challengeUrlsSurfacedFromAnEnvelopeCreatedAt(1_700_000_000 + 601));
+    }
+
+    public function testAResponseTenMinutesOldIsHandled(): void
+    {
+        $this->assertSame(['https://bunker.example/authorise'], $this->challengeUrlsSurfacedFromAnEnvelopeCreatedAt(1_700_000_000 - 600));
     }
 
     public function testAnAuthUrlChallengeNotifiesTheListenerWithoutCompletingTheCall(): void
@@ -622,34 +772,79 @@ final class Nip46ClientTest extends TestCase
         $this->assertSame(['https://bunker.example/authorise'], $listener->urls);
     }
 
-    public function testAnAuthUrlChallengeWithoutAUrlIsIgnored(): void
+    #[DataProvider('sharedAuthUrlVectors')]
+    public function testAListenerIsHandedEachSharedVectorsUrlAsReceivedAndNothingElse(?string $error, ?string $handedOver): void
     {
-        [$client] = $this->clientWith(static fn (array $request): array => [
-            'id' => $request['id'],
-            'result' => 'auth_url',
-        ]);
-        $listener = new RecordingAuthUrlListener();
-        $client->setAuthUrlListener($listener);
-
-        $result = $client->connect($this->bunkerUrl());
-
-        $this->assertSame([], $listener->urls);
-        $this->assertInstanceOf(Nip46Failure::class, $result);
-    }
-
-    public function testAnAuthUrlChallengeWithANonWebUrlIsNotSurfaced(): void
-    {
-        [$client] = $this->clientWith(static fn (array $request): array => [
-            'id' => $request['id'],
-            'result' => 'auth_url',
-            'error' => 'javascript:alert(1)',
-        ]);
+        [$client] = $this->clientWith(self::challenging($error));
         $listener = new RecordingAuthUrlListener();
         $client->setAuthUrlListener($listener);
 
         $client->connect($this->bunkerUrl());
 
-        $this->assertSame([], $listener->urls);
+        $this->assertSame(null === $handedOver ? [] : [$handedOver], $listener->urls);
+    }
+
+    #[DataProvider('sharedAuthUrlVectors')]
+    public function testWithAListenerOnlyAChallengeThatIsNoWebUrlFailsTheRequest(?string $error, ?string $handedOver): void
+    {
+        [$client] = $this->clientWith(self::challenging($error));
+        $client->setAuthUrlListener(new RecordingAuthUrlListener());
+
+        $result = $client->connect($this->bunkerUrl());
+
+        $this->assertSame(
+            null === $handedOver ? self::NOT_A_WEB_URL : null,
+            $result instanceof Nip46Failure ? $result->getDetail() : 'connected',
+        );
+    }
+
+    #[DataProvider('sharedAuthUrlVectors')]
+    public function testWithoutAListenerEachSharedVectorFailsTheRequestWithOrWithoutItsUrl(?string $error, ?string $handedOver): void
+    {
+        [$client] = $this->clientWith(self::challenging($error));
+
+        $result = $client->connect($this->bunkerUrl());
+
+        $this->assertSame(
+            null === $handedOver ? self::NOT_A_WEB_URL : 'bunker requires authentication: '.$handedOver,
+            $result instanceof Nip46Failure ? $result->getDetail() : null,
+        );
+    }
+
+    /**
+     * @return iterable<string, array{?string, ?string}>
+     */
+    public static function sharedAuthUrlVectors(): iterable
+    {
+        return AuthUrlVectors::cases();
+    }
+
+    public function testAListenerlessChallengeWhoseUrlCarriesADeclineWordIsNotADecline(): void
+    {
+        [$client] = $this->clientWith(self::challenging('https://bunker.example/cancel'));
+
+        $result = $client->connect($this->bunkerUrl());
+
+        $this->assertSame(Nip46FailureReason::SignerError, $result instanceof Nip46Failure ? $result->getReason() : null);
+    }
+
+    public function testAChallengeWithANonWebUrlFailsTheRequestAtOnceThoughAListenerIsRegistered(): void
+    {
+        [$client] = $this->clientWith(self::challenging('javascript:alert(1)'));
+        $client->setAuthUrlListener(new RecordingAuthUrlListener());
+
+        $result = $client->connect($this->bunkerUrl());
+
+        $this->assertSame(Nip46FailureReason::SignerError, $result instanceof Nip46Failure ? $result->getReason() : null);
+    }
+
+    public function testAChallengeWithANonWebUrlFailsTheRequestAtOnceWithoutAListener(): void
+    {
+        [$client] = $this->clientWith(self::challenging('javascript:alert(1)'));
+
+        $result = $client->connect($this->bunkerUrl());
+
+        $this->assertSame(Nip46FailureReason::SignerError, $result instanceof Nip46Failure ? $result->getReason() : null);
     }
 
     public function testTheSessionAdoptsTheCipherTheBunkerAnswersWith(): void
@@ -663,7 +858,7 @@ final class Nip46ClientTest extends TestCase
     }
 
     /**
-     * @param Closure(array<mixed>): ?array<string, mixed> $respond
+     * @param Closure(array<mixed>, ScriptedBunkerTransport): ?array<string, mixed> $respond
      *
      * @return array{Nip46Client, ScriptedBunkerTransport, InstantPendingResponses}
      */
@@ -678,6 +873,14 @@ final class Nip46ClientTest extends TestCase
         );
 
         return [$client, $transport, $pending];
+    }
+
+    /**
+     * @return Closure(array<mixed>): ?array<string, mixed>
+     */
+    private static function challenging(?string $url): Closure
+    {
+        return static fn (array $request): array => ['id' => $request['id'], 'result' => 'auth_url', ...(null === $url ? [] : ['error' => $url])];
     }
 
     /**
@@ -741,6 +944,80 @@ final class Nip46ClientTest extends TestCase
         $relay = RelayUrl::fromString('wss://signer.example');
 
         return new BunkerUrl(TestKeys::signerPubkey(), new RelayUrlCollection([$relay]), null);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function challengeUrlsSurfacedFromAnEnvelopeCreatedAt(int $createdAt): array
+    {
+        $client = $this->clientDeliveringDuringARequest(static function (ScriptedBunkerTransport $transport, mixed $requestId) use ($createdAt): void {
+            $transport->deliver(self::challengeEnvelope($requestId, $createdAt));
+        });
+        $listener = new RecordingAuthUrlListener();
+        $client->setAuthUrlListener($listener);
+
+        $client->nip44Encrypt(TestKeys::clientPubkey(), 'hello');
+
+        return $listener->urls;
+    }
+
+    /**
+     * @param Closure(ScriptedBunkerTransport, mixed): void $deliver called while a nip44_encrypt request is awaited, with that request's id
+     */
+    private function clientDeliveringDuringARequest(Closure $deliver, ?Nip46SignerInterface $sessionSigner = null): Nip46Client
+    {
+        $respond = function (array $request, ScriptedBunkerTransport $transport) use ($deliver): ?array {
+            if ('nip44_encrypt' !== $request['method']) {
+                return ($this->handshake())($request);
+            }
+
+            $deliver($transport, $request['id']);
+
+            return null;
+        };
+        [$client] = $this->clientWith($respond, sessionSigner: $sessionSigner);
+        $client->connect($this->bunkerUrl());
+
+        return $client;
+    }
+
+    private static function challengeEnvelope(mixed $requestId, int $createdAt): Event
+    {
+        return IncomingEnvelope::make(
+            ['id' => $requestId, 'result' => 'auth_url', 'error' => 'https://bunker.example/authorise'],
+            TestKeys::signerPubkey(),
+            TestKeys::clientPubkey(),
+            Timestamp::fromInt($createdAt),
+        );
+    }
+
+    private function signEventAnsweredWith(Rumour $returned, ?Nip46SignerInterface $sessionSigner = null): Event|Nip46Failure
+    {
+        $signed = new Event($returned, $returned->getId(), Signature::tryFromHex(str_repeat('0', 128)) ?? throw new RuntimeException('Invalid fixture signature'));
+        [$client] = $this->clientWith($this->handshake(['sign_event' => $signed->toJson()]), sessionSigner: $sessionSigner);
+        $client->connect($this->bunkerUrl());
+
+        return $client->signEvent(self::template());
+    }
+
+    private static function template(): Rumour
+    {
+        return self::templateTagged([['t', 'nostr'], ['e', str_repeat('a', 64), 'wss://relay.example']]);
+    }
+
+    /**
+     * @param list<list<string>> $tags
+     */
+    private static function templateTagged(array $tags): Rumour
+    {
+        return Rumour::draft(
+            TestKeys::signerPubkey(),
+            EventKind::fromInt(EventKind::TEXT_NOTE),
+            EventContent::fromString('gm'),
+            new TagCollection(array_map(Tag::fromArray(...), $tags)),
+            Timestamp::fromInt(1_700_000_000),
+        );
     }
 
     private static function oversizeRumour(): Rumour

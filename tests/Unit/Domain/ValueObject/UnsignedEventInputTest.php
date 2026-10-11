@@ -4,7 +4,11 @@ declare(strict_types=1);
 
 namespace Innis\Nostr\Nip46\Tests\Unit\Domain\ValueObject;
 
+use Innis\Nostr\Core\Domain\Collection\TagCollection;
+use Innis\Nostr\Core\Domain\ValueObject\Content\EventContent;
 use Innis\Nostr\Core\Domain\ValueObject\Content\EventKind;
+use Innis\Nostr\Core\Domain\ValueObject\Protocol\Rumour;
+use Innis\Nostr\Core\Domain\ValueObject\Tag\Tag;
 use Innis\Nostr\Core\Domain\ValueObject\Timestamp;
 use Innis\Nostr\Nip46\Domain\ValueObject\UnsignedEventInput;
 use Innis\Nostr\Nip46\Tests\Support\TestKeys;
@@ -50,6 +54,18 @@ final class UnsignedEventInputTest extends TestCase
         $event = $input->toRumour(TestKeys::signerPubkey(), Timestamp::fromInt(9999));
 
         $this->assertSame(9999, $event->getCreatedAt()->toInt());
+    }
+
+    public function testSerialisesARumourAsTheFourTemplateFields(): void
+    {
+        $rumour = Rumour::draft(TestKeys::signerPubkey(), EventKind::fromInt(EventKind::TEXT_NOTE), EventContent::fromString('gm'), new TagCollection([Tag::fromArray(['t', 'nostr'])]), Timestamp::fromInt(1_700_000_000));
+
+        $this->assertSame('{"kind":1,"created_at":1700000000,"tags":[["t","nostr"]],"content":"gm"}', UnsignedEventInput::fromRumour($rumour)->toJson());
+    }
+
+    public function testSerialisesNoCreatedAtWhenTheTemplateHasNone(): void
+    {
+        $this->assertSame('{"kind":1,"tags":[],"content":""}', UnsignedEventInput::tryFromWire(['kind' => 1])?->toJson());
     }
 
     public function testRejectsNonIntegerKind(): void

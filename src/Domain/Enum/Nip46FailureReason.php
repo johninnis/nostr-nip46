@@ -12,5 +12,6 @@ enum Nip46FailureReason
     case SignerError;
     case InvalidResponse;
     case IdentityMismatch;
+    case TemplateMismatch;
     case InvalidSignature;
 }

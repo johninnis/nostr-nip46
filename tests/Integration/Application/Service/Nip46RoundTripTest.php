@@ -100,19 +100,17 @@ final class Nip46RoundTripTest extends TestCase
 
         $result = $this->client->connect($this->bunkerUrl);
 
-        $this->assertInstanceOf(Nip46Failure::class, $result);
-        $this->assertSame(Nip46FailureReason::TimedOut, $result->getReason());
+        $this->assertSame('invalid secret', $result instanceof Nip46Failure ? $result->getDetail() : null);
     }
 
-    public function testASecondClientPresentingTheUsedSecretIsIgnored(): void
+    public function testASecondClientPresentingTheUsedSecretIsAnsweredInvalidSecret(): void
     {
         $connected = $this->client->connect($this->bunkerUrl);
         self::assertInstanceOf(PublicKey::class, $connected);
 
         $result = $this->newClient()->connect($this->bunkerUrl);
 
-        $this->assertInstanceOf(Nip46Failure::class, $result);
-        $this->assertSame(Nip46FailureReason::TimedOut, $result->getReason());
+        $this->assertSame('invalid secret', $result instanceof Nip46Failure ? $result->getDetail() : null);
     }
 
     public function testAClientResumedOnItsSessionKeySignsWithoutConnectingAgain(): void

@@ -7,12 +7,14 @@ namespace Innis\Nostr\Nip46\Tests\Integration\Infrastructure\Crypto;
 use Innis\Nostr\Core\Domain\ValueObject\Content\EventContent;
 use Innis\Nostr\Core\Domain\ValueObject\Content\EventKind;
 use Innis\Nostr\Core\Domain\ValueObject\Identity\PrivateKey;
+use Innis\Nostr\Core\Domain\ValueObject\Identity\PublicKey;
 use Innis\Nostr\Core\Domain\ValueObject\Protocol\Rumour;
 use Innis\Nostr\Core\Infrastructure\Crypto\Secp256k1Signer;
 use Innis\Nostr\Nip46\Domain\Enum\EnvelopeCipher;
 use Innis\Nostr\Nip46\Infrastructure\Crypto\LocalNip46Signer;
 use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 
 final class LocalNip46SignerTest extends TestCase
 {
@@ -45,6 +47,23 @@ final class LocalNip46SignerTest extends TestCase
         $this->assertNull($bob->decrypt($alice->publicKey(), 'not-a-ciphertext', EnvelopeCipher::Nip44));
     }
 
+    public function testDecryptReturnsNullForANip44SenderKeyOffTheCurve(): void
+    {
+        $bob = LocalNip46Signer::create(PrivateKey::generate());
+
+        $this->assertNull($bob->decrypt(self::offCurveKey(), $this->nip44CiphertextFor($bob), EnvelopeCipher::Nip44));
+    }
+
+    #[IgnoreDeprecations]
+    public function testDecryptReturnsNullForANip04SenderKeyOffTheCurve(): void
+    {
+        $alice = LocalNip46Signer::create(PrivateKey::generate());
+        $bob = LocalNip46Signer::create(PrivateKey::generate());
+        $ciphertext = $alice->encrypt($bob->publicKey(), 'gm from a legacy device', EnvelopeCipher::Nip04);
+
+        $this->assertNull($bob->decrypt(self::offCurveKey(), $ciphertext, EnvelopeCipher::Nip04));
+    }
+
     public function testSignProducesAnEventThatVerifiesAgainstTheSignerKey(): void
     {
         $signer = LocalNip46Signer::create(PrivateKey::generate());
@@ -53,5 +72,15 @@ final class LocalNip46SignerTest extends TestCase
 
         $this->assertTrue($event->getPubkey()->equals($signer->publicKey()));
         $this->assertTrue($event->verify(Secp256k1Signer::create()));
+    }
+
+    private function nip44CiphertextFor(LocalNip46Signer $recipient): string
+    {
+        return LocalNip46Signer::create(PrivateKey::generate())->encrypt($recipient->publicKey(), 'gm from a remote device', EnvelopeCipher::Nip44);
+    }
+
+    private static function offCurveKey(): PublicKey
+    {
+        return PublicKey::tryFromHex(str_repeat('0', 63).'5') ?? throw new RuntimeException('Invalid fixture public key');
     }
 }

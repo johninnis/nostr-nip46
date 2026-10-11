@@ -211,8 +211,8 @@ final class Nip46Bunker implements Nip46BunkerInterface, Nip46EventListenerInter
     {
         $session = $this->session;
 
-        // Deliberate: the signature is verified before deduplication and decryption — it is what binds created_at and the event id a replay would freshen — see ADR-0037
-        if (null === $session || !$this->channel->isAuthentic($event) || !$session->rememberSeen($event->getId())) {
+        // Deliberate: the signature is verified before the age is judged, the id remembered or the payload decrypted — it is what binds created_at and the event id a replay would freshen — see ADR-0037 and ADR-0040
+        if (null === $session || !$this->channel->isAuthentic($event) || !$this->channel->isFresh($event) || !$session->rememberSeen($event->getId())) {
             return;
         }
 
@@ -344,13 +344,14 @@ final class Nip46Bunker implements Nip46BunkerInterface, Nip46EventListenerInter
         $secret = ConnectSecret::tryFromString($incoming->param(1) ?? '');
         $usedBy = null === $secret ? null : $this->usedSecrets->usedBy($secret);
 
-        if (null !== $usedBy) {
-            $this->reacknowledge($session, $incoming, $usedBy);
+        // Deliberate: a used secret is answered invalid secret, exactly as an unknown one, unless its own client, still connected, repeats it — see ADR-0023
+        if (null !== $usedBy && $usedBy->equals($clientPubkey) && $session->isAuthenticated($clientPubkey)) {
+            $this->answerNow($session, $incoming, Nip46Response::result($incoming->getId(), 'ack'));
 
             return;
         }
 
-        if (!$this->authenticator->authenticate($secret)) {
+        if (null !== $usedBy || !$this->authenticator->authenticate($secret)) {
             $this->respond($session, $clientPubkey, Nip46Response::failure($incoming->getId(), 'invalid secret'));
 
             return;
@@ -362,18 +363,6 @@ final class Nip46Bunker implements Nip46BunkerInterface, Nip46EventListenerInter
         if (null !== $secret) {
             $this->usedSecrets->recordUse($secret, $clientPubkey);
             $this->secretListener?->onSecretUsed($secret, $clientPubkey);
-        }
-
-        $this->answerNow($session, $incoming, Nip46Response::result($incoming->getId(), 'ack'));
-    }
-
-    // Deliberate: a used secret is ignored without a reply unless its own client, still connected, repeats it — see ADR-0023
-    private function reacknowledge(BunkerSession $session, IncomingRequest $incoming, PublicKey $usedBy): void
-    {
-        $clientPubkey = $incoming->getClientPubkey();
-
-        if (!$usedBy->equals($clientPubkey) || !$session->isAuthenticated($clientPubkey)) {
-            return;
         }
 
         $this->answerNow($session, $incoming, Nip46Response::result($incoming->getId(), 'ack'));

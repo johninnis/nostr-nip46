@@ -16,16 +16,22 @@ use Innis\Nostr\Nip46\Application\Port\Nip46SubscriptionInterface;
 use Innis\Nostr\Nip46\Domain\Entity\ClientSession;
 use Innis\Nostr\Nip46\Domain\Enum\Nip46Method;
 use Innis\Nostr\Nip46\Domain\Failure\Nip46Failure;
+use Innis\Nostr\Nip46\Domain\Service\SignedTemplateMatcher;
 use Innis\Nostr\Nip46\Domain\Service\UserRejectionMatcher;
+use Innis\Nostr\Nip46\Domain\ValueObject\AuthUrl;
 use Innis\Nostr\Nip46\Domain\ValueObject\BunkerUrl;
 use Innis\Nostr\Nip46\Domain\ValueObject\ClientMetadata;
 use Innis\Nostr\Nip46\Domain\ValueObject\Nip46Request;
 use Innis\Nostr\Nip46\Domain\ValueObject\Nip46Response;
+use Innis\Nostr\Nip46\Domain\ValueObject\UnsignedEventInput;
 use LogicException;
 use Override;
 
 final class Nip46Client implements Nip46ClientInterface, Nip46EventListenerInterface
 {
+    private const string AUTHENTICATION_REQUIRED = 'bunker requires authentication: ';
+    private const string NOT_A_WEB_URL = 'bunker sent an authentication URL that is not a web URL';
+
     private ?ClientSession $session = null;
     private ?Nip46SubscriptionInterface $subscription = null;
     private ?Nip46AuthUrlListenerInterface $authUrlListener = null;
@@ -98,7 +104,7 @@ final class Nip46Client implements Nip46ClientInterface, Nip46EventListenerInter
     #[Override]
     public function signEvent(Rumour $unsigned, float $timeoutSeconds = self::DEFAULT_TIMEOUT_SECONDS): Event|Nip46Failure
     {
-        $result = $this->request(Nip46Method::SignEvent, [$unsigned->toJson()], $timeoutSeconds);
+        $result = $this->request(Nip46Method::SignEvent, [UnsignedEventInput::fromRumour($unsigned)->toJson()], $timeoutSeconds);
 
         if ($result instanceof Nip46Failure) {
             return $result;
@@ -115,6 +121,10 @@ final class Nip46Client implements Nip46ClientInterface, Nip46EventListenerInter
 
         if (!$signed->getPubkey()->equals($userPublicKey)) {
             return Nip46Failure::identityMismatch(Nip46Method::SignEvent);
+        }
+
+        if (!SignedTemplateMatcher::matches($unsigned, $signed)) {
+            return Nip46Failure::templateMismatch(Nip46Method::SignEvent);
         }
 
         if (!$this->channel->isAuthentic($signed)) {
@@ -191,9 +201,9 @@ final class Nip46Client implements Nip46ClientInterface, Nip46EventListenerInter
             return;
         }
 
-        // Deliberate: the signature is verified before deduplication and decryption — it is what binds created_at and the event id a replay would freshen — see ADR-0037.
+        // Deliberate: the signature is verified before the age is judged, the id remembered or the payload decrypted — it is what binds created_at and the event id a replay would freshen — see ADR-0037 and ADR-0040.
         // Deliberate: duplicates are dropped here, not left to the pending port's idempotence — an auth_url challenge bypasses that port — see ADR-0010.
-        if (!$this->channel->isAuthentic($event) || !$session->rememberSeen($event->getId())) {
+        if (!$this->channel->isAuthentic($event) || !$this->channel->isFresh($event) || !$session->rememberSeen($event->getId())) {
             return;
         }
 
@@ -207,30 +217,31 @@ final class Nip46Client implements Nip46ClientInterface, Nip46EventListenerInter
 
         $response = Nip46Response::tryFromWire($decoded->getPayload());
 
-        if (!$response instanceof Nip46Response) {
+        if (!$response instanceof Nip46Response || !$session->isAwaiting($response->getId())) {
             return;
         }
 
         if ($response->isAuthUrlChallenge()) {
-            $url = $response->getAuthUrl();
-
-            if (null === $url) {
-                return;
-            }
-
-            // Deliberate: a challenge the host cannot show fails the request at once with the URL, never a silent timeout — see ADR-0036
-            if (null === $this->authUrlListener) {
-                $this->pending->complete(Nip46Response::failure($response->getId(), 'bunker requires authentication: '.$url));
-
-                return;
-            }
-
-            $this->authUrlListener->onAuthUrl($url);
+            $this->challenge($response);
 
             return;
         }
 
         $this->pending->complete($response);
+    }
+
+    // Deliberate: only a web URL reaches a registered listener and the request waits; any other challenge completes the request, which fails at once — see ADR-0013 and ADR-0036
+    private function challenge(Nip46Response $challenge): void
+    {
+        $url = $challenge->getAuthUrl();
+
+        if (null !== $url && null !== $this->authUrlListener) {
+            $this->authUrlListener->onAuthUrl($url);
+
+            return;
+        }
+
+        $this->pending->complete($challenge);
     }
 
     private function listen(ClientSession $session): void
@@ -275,13 +286,22 @@ final class Nip46Client implements Nip46ClientInterface, Nip46EventListenerInter
         }
 
         $pending = $this->pending->open($request->getId());
+        $session->awaitResponseTo($request->getId());
 
-        $this->channel->publish($session->getRelays(), $event);
+        try {
+            $this->channel->publish($session->getRelays(), $event);
 
-        $response = $pending->await($timeoutSeconds);
+            $response = $pending->await($timeoutSeconds);
+        } finally {
+            $session->stopAwaiting($request->getId());
+        }
 
         if (!$response instanceof Nip46Response) {
             return Nip46Failure::timedOut($method);
+        }
+
+        if ($response->isAuthUrlChallenge()) {
+            return self::unopenedChallenge($method, $response->getAuthUrl());
         }
 
         $error = $response->getError();
@@ -294,6 +314,12 @@ final class Nip46Client implements Nip46ClientInterface, Nip46EventListenerInter
 
         return $response->getResult()
             ?? Nip46Failure::invalidResponse($method);
+    }
+
+    // Deliberate: the client writes this failure itself, so the decline classifier never reads it, whatever words the URL holds — see ADR-0036
+    private static function unopenedChallenge(Nip46Method $method, ?AuthUrl $url): Nip46Failure
+    {
+        return Nip46Failure::signerError($method, null === $url ? self::NOT_A_WEB_URL : self::AUTHENTICATION_REQUIRED.$url);
     }
 
     /**

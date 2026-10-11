@@ -10,6 +10,7 @@ use Innis\Nostr\Core\Domain\ValueObject\Content\EventKind;
 use Innis\Nostr\Core\Domain\ValueObject\Identity\EventId;
 use Innis\Nostr\Core\Domain\ValueObject\Identity\PublicKey;
 use Innis\Nostr\Core\Domain\ValueObject\Protocol\RelayUrl;
+use Innis\Nostr\Core\Domain\ValueObject\Timestamp;
 use Innis\Nostr\Nip46\Application\Service\CapabilityGate;
 use Innis\Nostr\Nip46\Application\Service\Nip46Bunker;
 use Innis\Nostr\Nip46\Application\Service\Nip46Channel;
@@ -89,6 +90,45 @@ final class Nip46BunkerTest extends TestCase
 
         $this->signer->verifyVerdict = true;
         $this->deliver(['id' => 'p1', 'method' => 'ping', 'params' => []]);
+
+        $this->assertSame('pong', $this->decodeResponse()['result'] ?? null);
+    }
+
+    public function testARequestMoreThanTenMinutesOldIsDroppedWithoutAReply(): void
+    {
+        $this->deliverCreatedAt(['id' => 'p1', 'method' => 'ping', 'params' => []], $this->clock->now()->toInt() - 601);
+
+        $this->assertSame([], $this->transport->published);
+    }
+
+    public function testARequestMoreThanTenMinutesAheadIsDroppedWithoutAReply(): void
+    {
+        $this->deliverCreatedAt(['id' => 'p1', 'method' => 'ping', 'params' => []], $this->clock->now()->toInt() + 601);
+
+        $this->assertSame([], $this->transport->published);
+    }
+
+    public function testAStaleRequestIsNotDecrypted(): void
+    {
+        $this->deliverCreatedAt(['id' => 'p1', 'method' => 'ping', 'params' => []], $this->clock->now()->toInt() - 601);
+
+        $this->assertSame([], $this->signer->decryptCiphers());
+    }
+
+    public function testAStaleRequestIsNotRememberedAsSeen(): void
+    {
+        $createdAt = $this->clock->now()->toInt() + 601;
+        $this->deliverCreatedAt(['id' => 'p1', 'method' => 'ping', 'params' => []], $createdAt);
+        $this->clock->advance(601);
+
+        $this->deliverCreatedAt(['id' => 'p1', 'method' => 'ping', 'params' => []], $createdAt);
+
+        $this->assertSame('pong', $this->decodeResponse()['result'] ?? null);
+    }
+
+    public function testARequestTenMinutesOldIsAnswered(): void
+    {
+        $this->deliverCreatedAt(['id' => 'p1', 'method' => 'ping', 'params' => []], $this->clock->now()->toInt() - 600);
 
         $this->assertSame('pong', $this->decodeResponse()['result'] ?? null);
     }
@@ -181,14 +221,22 @@ final class Nip46BunkerTest extends TestCase
         $this->assertSame('not connected', $this->decodeResponse()['error'] ?? null);
     }
 
-    public function testAUsedSecretPresentedByAnotherClientIsIgnored(): void
+    public function testAUsedSecretPresentedByAnotherClientIsAnsweredInvalidSecret(): void
     {
         $this->connect();
-        $publishedBefore = count($this->transport->published);
 
         $this->deliver(['id' => 'c2', 'method' => 'connect', 'params' => ['', self::SECRET]], TestKeys::secondClientPubkey());
 
-        $this->assertCount($publishedBefore, $this->transport->published);
+        $this->assertSame(['id' => 'c2', 'error' => 'invalid secret'], $this->decodeResponseFor(TestKeys::secondClientPubkey()));
+    }
+
+    public function testAUsedSecretPresentedByAnotherClientIsNotReportedUsedAgain(): void
+    {
+        $this->connect();
+
+        $this->deliver(['id' => 'c2', 'method' => 'connect', 'params' => ['', self::SECRET]], TestKeys::secondClientPubkey());
+
+        $this->assertCount(1, $this->secrets->used);
     }
 
     public function testAClientPresentingAUsedSecretIsNotConnected(): void
@@ -214,11 +262,10 @@ final class Nip46BunkerTest extends TestCase
     {
         $this->connect();
         $this->deliver(['id' => 'lo1', 'method' => 'logout', 'params' => []]);
-        $publishedBefore = count($this->transport->published);
 
         $this->deliver(['id' => 'c2', 'method' => 'connect', 'params' => ['', self::SECRET]]);
 
-        $this->assertCount($publishedBefore, $this->transport->published);
+        $this->assertSame(['id' => 'c2', 'error' => 'invalid secret'], $this->decodeResponse());
     }
 
     public function testASecretStaysUsedAcrossARestart(): void
@@ -226,11 +273,10 @@ final class Nip46BunkerTest extends TestCase
         $this->connect();
         $this->bunker->stop();
         $this->bunker->start($this->relays());
-        $publishedBefore = count($this->transport->published);
 
         $this->deliver(['id' => 'c2', 'method' => 'connect', 'params' => ['', self::SECRET]], TestKeys::secondClientPubkey());
 
-        $this->assertCount($publishedBefore, $this->transport->published);
+        $this->assertSame(['id' => 'c2', 'error' => 'invalid secret'], $this->decodeResponseFor(TestKeys::secondClientPubkey()));
     }
 
     public function testUsingASecretTellsTheSecretListenerWhoUsedIt(): void
@@ -863,6 +909,14 @@ final class Nip46BunkerTest extends TestCase
             TestKeys::signerPubkey(),
             $this->clock->now(),
         ));
+    }
+
+    /**
+     * @param array<string, mixed> $request
+     */
+    private function deliverCreatedAt(array $request, int $createdAt): void
+    {
+        $this->transport->deliver(IncomingEnvelope::make($request, TestKeys::clientPubkey(), TestKeys::signerPubkey(), Timestamp::fromInt($createdAt)));
     }
 
     /**

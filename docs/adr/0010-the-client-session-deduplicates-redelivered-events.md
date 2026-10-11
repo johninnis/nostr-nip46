@@ -14,7 +14,7 @@ One inbound path bypasses that port. An `auth_url` challenge is not correlated i
 
 `ClientSession` remembers seen event ids exactly as `BunkerSession` does, through one shared `SeenEventIds` entity holding the bounded, oldest-evicted id set for both roles. `Nip46Client` drops an already-seen event before decrypting it, so every downstream path — response completion and auth-url notification alike — observes each event once per session.
 
-`Nip46PendingResponsesInterface::complete()` must remain idempotent regardless: a response arriving after its request timed out, or after the seen-set evicted an old id, still reaches the port.
+`Nip46PendingResponsesInterface::complete()` must remain idempotent regardless: a second response event to a request still awaited, re-sent by the bunker or redelivered after the seen-set evicted its id, still reaches the port.
 
 ## Consequences
 
@@ -22,3 +22,4 @@ One inbound path bypasses that port. An `auth_url` challenge is not correlated i
 - Deduplication logic exists once, in `SeenEventIds`; neither session re-implements the set or its eviction bound.
 - The check sits before decryption, so redelivered ciphertext is not decrypted N times.
 - The call site carries a one-line fence pointing here, and a test delivers the same challenge event twice and asserts a single notification, so the check cannot be removed as redundant with the port's idempotence without breaking the build.
+- Shared decision: nostr-adrs ADR-0050.

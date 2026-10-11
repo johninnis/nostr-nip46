@@ -29,3 +29,4 @@ Restated for a session that is no longer single-set: the list reported is the **
 - The reply is not the complete set of relays the bunker will answer on for that client. This is deliberate: it is an instruction about where to talk, not an inventory.
 - The bunker still never re-subscribes in response to this method. Its relay set grows only when the host accepts or restores a pairing.
 - A reader could expect `switch_relays` to perform a real switch. A fence at the call site points here, and a test asserts the reply is the signer's own set.
+- Shared decision: nostr-adrs ADR-0056.

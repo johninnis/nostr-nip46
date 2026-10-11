@@ -6,6 +6,7 @@ namespace Innis\Nostr\Nip46\Tests\Unit\Domain\ValueObject;
 
 use Innis\Nostr\Nip46\Domain\ValueObject\Nip46Request;
 use PHPUnit\Framework\TestCase;
+use stdClass;
 
 final class Nip46RequestTest extends TestCase
 {
@@ -27,20 +28,43 @@ final class Nip46RequestTest extends TestCase
         $this->assertSame([], $request->toArray()['params']);
     }
 
-    public function testNormalisesNonStringParamToJson(): void
+    public function testEncodesASignEventEventWrittenAsAJsonObject(): void
     {
         $request = Nip46Request::tryFromWire(['id' => 'abc', 'method' => 'sign_event', 'params' => [['kind' => 1]]]);
 
-        self::assertNotNull($request);
-        $this->assertSame('{"kind":1}', $request->param(0));
+        $this->assertSame('{"kind":1}', $request?->param(0));
     }
 
-    public function testNormalisesFalsyNumericParamWithoutLosingIt(): void
+    public function testEncodesASignEventEventWrittenAsAnEmptyJsonObject(): void
     {
-        $request = Nip46Request::tryFromWire(['id' => 'abc', 'method' => 'sign_event', 'params' => [0]]);
+        $request = Nip46Request::tryFromWire(['id' => 'abc', 'method' => 'sign_event', 'params' => [new stdClass()]]);
 
-        self::assertNotNull($request);
-        $this->assertSame('0', $request->param(0));
+        $this->assertSame('{}', $request?->param(0));
+    }
+
+    public function testRefusesASignEventEventWrittenAsAJsonArray(): void
+    {
+        $this->assertNull(Nip46Request::tryFromWire(['id' => 'abc', 'method' => 'sign_event', 'params' => [[1, 'gm']]]));
+    }
+
+    public function testRefusesASignEventEventWrittenAsANumber(): void
+    {
+        $this->assertNull(Nip46Request::tryFromWire(['id' => 'abc', 'method' => 'sign_event', 'params' => [0]]));
+    }
+
+    public function testRefusesANonStringParamAfterTheSignEventEvent(): void
+    {
+        $this->assertNull(Nip46Request::tryFromWire(['id' => 'abc', 'method' => 'sign_event', 'params' => ['{"kind":1}', ['kind' => 1]]]));
+    }
+
+    public function testRefusesAJsonObjectParamOfAnotherMethod(): void
+    {
+        $this->assertNull(Nip46Request::tryFromWire(['id' => 'abc', 'method' => 'nip44_encrypt', 'params' => [['kind' => 1], 'plaintext']]));
+    }
+
+    public function testRefusesANullParam(): void
+    {
+        $this->assertNull(Nip46Request::tryFromWire(['id' => 'abc', 'method' => 'connect', 'params' => ['', null]]));
     }
 
     public function testRejectsMissingId(): void

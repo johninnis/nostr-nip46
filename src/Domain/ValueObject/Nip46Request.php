@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Innis\Nostr\Nip46\Domain\ValueObject;
 
 use Innis\Nostr\Core\Domain\Service\JsonWireFormat;
+use Innis\Nostr\Nip46\Domain\Enum\Nip46Method;
 
 final readonly class Nip46Request
 {
@@ -74,13 +75,41 @@ final readonly class Nip46Request
             return null;
         }
 
-        $params = array_map(self::normaliseParam(...), $rawParams);
+        $params = self::paramsFrom($method, $rawParams);
 
-        return new self($id, $method, $params);
+        return null === $params ? null : new self($id, $method, $params);
     }
 
-    private static function normaliseParam(mixed $param): string
+    /**
+     * @param list<mixed> $rawParams
+     *
+     * @return list<string>|null
+     */
+    private static function paramsFrom(string $method, array $rawParams): ?array
     {
-        return is_string($param) ? $param : JsonWireFormat::encode($param, JsonWireFormat::MESSAGE);
+        $params = array_values(array_filter(
+            array_map(
+                static fn (int $index, mixed $param): ?string => self::normaliseParam($method, $index, $param),
+                array_keys($rawParams),
+                $rawParams,
+            ),
+            static fn (?string $param): bool => null !== $param,
+        ));
+
+        return count($params) === count($rawParams) ? $params : null;
+    }
+
+    // Deliberate: only sign_event's event may arrive as a JSON object, encoded to the string it should have been; any other non-string parameter is refused — see nostr-adrs ADR-0116
+    private static function normaliseParam(string $method, int $index, mixed $param): ?string
+    {
+        if (is_string($param)) {
+            return $param;
+        }
+
+        $isSignEventEvent = Nip46Method::SignEvent->value === $method && 0 === $index;
+
+        return $isSignEventEvent && null !== JsonWireFormat::objectFields($param)
+            ? JsonWireFormat::encode($param, JsonWireFormat::MESSAGE)
+            : null;
     }
 }

@@ -12,7 +12,7 @@ A remote signer is a long-lived process. Between one inbound event and the next 
 
 This sits awkwardly beside the default of immutable values that return new instances. A request handler that returned a new "signer" value for every event would make every caller (the relay subscription, the approval UI, the policy gate) pass the latest instance around, and they all watch the queue at the same time. The state really is shared and really is mutable.
 
-ADR-0001 said an evicted client is no longer authenticated and simply reconnects with its secret, as it would after a bunker restart. Under ADR-0023 that is no longer true: a secret connects one client, and presenting it again is ignored.
+ADR-0001 said an evicted client is no longer authenticated and simply reconnects with its secret, as it would after a bunker restart. Under ADR-0023 that is no longer true: a secret connects one client, and presenting it again is refused.
 
 ## Decision
 
@@ -28,7 +28,7 @@ The pending queue must not evict, because a request dropped without a word leave
 
 - The session is the one place that holds mutable protocol state. The value objects around it stay immutable, and the request-handling code reads as plain method calls on one object.
 - A reader expecting every type here to be immutable will find one that is not. That is deliberate: the session models a lifecycle, not a value, and the bounds keep a process that never stops from growing.
-- Eviction can in principle forget an id seen long ago. At ten thousand entries the redelivery window it guards against has long closed, so the risk is theoretical.
+- Eviction can forget an id seen long ago, so the seen-id set guards redelivery, not replay. A request replayed after its id is evicted is dropped by the ten-minute window (ADR-0040), not by the set.
 - Eviction now costs a client more than a reconnect. At ten thousand authenticated clients this is theoretical too, and the host's `restorePairing()` is the way back.
 - The queue is bounded by refusal, not eviction. A client past the capacity gets an explicit error, and the operator clears the queue by deciding requests. Making `queue` evict like the maps would bring back the silent hang the refusal prevents.
 - Shared decisions: nostr-adrs ADR-0050 (the seen-id set), ADR-0051 (bounded state, and a full queue refuses rather than evicts) and ADR-0058 (the used-secret record).

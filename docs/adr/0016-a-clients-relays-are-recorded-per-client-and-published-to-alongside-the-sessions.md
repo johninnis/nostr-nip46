@@ -29,3 +29,4 @@ The session's own relay set stays what it was started with. It is what `bunker:/
 - The bunker holds more than one subscription, and `stop` must cancel all of them. It does.
 - Per-client relay sets are bounded like the other per-client state; the oldest entry is evicted past the limit, after which that client is answered on the signer's own relays only.
 - A reader may expect one relay set per session, as this package had. The set is now per client by construction, and the tests assert both halves: a paired client is answered on the union, an unpaired one on the session's own.
+- Shared decision: nostr-adrs ADR-0056.

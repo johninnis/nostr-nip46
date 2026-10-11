@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Innis\Nostr\Nip46\Domain\ValueObject;
 
 use Innis\Nostr\Core\Domain\Collection\TagCollection;
+use Innis\Nostr\Core\Domain\Service\JsonWireFormat;
 use Innis\Nostr\Core\Domain\ValueObject\Content\EventContent;
 use Innis\Nostr\Core\Domain\ValueObject\Content\EventKind;
 use Innis\Nostr\Core\Domain\ValueObject\Identity\PublicKey;
@@ -19,6 +20,11 @@ final readonly class UnsignedEventInput
         private TagCollection $tags,
         private EventContent $content,
     ) {
+    }
+
+    public static function fromRumour(Rumour $rumour): self
+    {
+        return new self($rumour->getKind(), $rumour->getCreatedAt(), $rumour->getTags(), $rumour->getContent());
     }
 
     public function getKind(): EventKind
@@ -50,6 +56,16 @@ final readonly class UnsignedEventInput
             $this->tags,
             $this->createdAt ?? $fallbackCreatedAt,
         );
+    }
+
+    public function toJson(): string
+    {
+        return JsonWireFormat::encode([
+            'kind' => $this->kind->toInt(),
+            ...(null === $this->createdAt ? [] : ['created_at' => $this->createdAt->toInt()]),
+            'tags' => $this->tags->toJsonArray(),
+            'content' => (string) $this->content,
+        ], JsonWireFormat::EVENT);
     }
 
     public static function tryFromWire(mixed $value): ?self

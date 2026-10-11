@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace Innis\Nostr\Nip46\Tests\Unit\Application\Service;
 
 use Innis\Nostr\Core\Domain\Collection\RelayUrlCollection;
+use Innis\Nostr\Core\Domain\Collection\TagCollection;
 use Innis\Nostr\Core\Domain\Entity\Event;
 use Innis\Nostr\Core\Domain\ValueObject\Content\EventContent;
 use Innis\Nostr\Core\Domain\ValueObject\Content\EventKind;
 use Innis\Nostr\Core\Domain\ValueObject\Protocol\RelayUrl;
 use Innis\Nostr\Core\Domain\ValueObject\Protocol\Rumour;
 use Innis\Nostr\Core\Domain\ValueObject\Tag\TagType;
+use Innis\Nostr\Core\Domain\ValueObject\Timestamp;
 use Innis\Nostr\Nip46\Application\Port\Nip46EventListenerInterface;
 use Innis\Nostr\Nip46\Application\Service\Nip46Channel;
 use Innis\Nostr\Nip46\Domain\Enum\EnvelopeCipher;
@@ -103,6 +105,36 @@ final class Nip46ChannelTest extends TestCase
         $this->assertNull($this->channel->open($this->envelope('not-an-envelope')));
     }
 
+    public function testAnEnvelopeTenMinutesBeforeTheClockIsFresh(): void
+    {
+        $this->assertTrue($this->channel->isFresh($this->envelopeCreatedAt(self::NOW - 600)));
+    }
+
+    public function testAnEnvelopeTenMinutesAfterTheClockIsFresh(): void
+    {
+        $this->assertTrue($this->channel->isFresh($this->envelopeCreatedAt(self::NOW + 600)));
+    }
+
+    public function testAnEnvelopeMoreThanTenMinutesBeforeTheClockIsStale(): void
+    {
+        $this->assertFalse($this->channel->isFresh($this->envelopeCreatedAt(self::NOW - 601)));
+    }
+
+    public function testAnEnvelopeMoreThanTenMinutesAfterTheClockIsStale(): void
+    {
+        $this->assertFalse($this->channel->isFresh($this->envelopeCreatedAt(self::NOW + 601)));
+    }
+
+    public function testAnEnvelopeAsOldAsThePublishedFreshnessWindowIsFresh(): void
+    {
+        $this->assertTrue($this->channel->isFresh($this->envelopeCreatedAt(self::NOW - Nip46Channel::FRESHNESS_WINDOW_SECONDS)));
+    }
+
+    public function testAnEnvelopeOlderThanThePublishedFreshnessWindowIsStale(): void
+    {
+        $this->assertFalse($this->channel->isFresh($this->envelopeCreatedAt(self::NOW - Nip46Channel::FRESHNESS_WINDOW_SECONDS - 1)));
+    }
+
     public function testSealsASignedConnectKindEventToThePeerThatDecryptsBack(): void
     {
         $event = $this->seal($this->channel);
@@ -147,6 +179,17 @@ final class Nip46ChannelTest extends TestCase
     private function envelope(string $content): Event
     {
         return new FakeSigner(TestKeys::clientPubkey())->sign(Rumour::draft(TestKeys::clientPubkey(), EventKind::fromInt(EventKind::NOSTR_CONNECT), EventContent::fromString($content)));
+    }
+
+    private function envelopeCreatedAt(int $createdAt): Event
+    {
+        return new FakeSigner(TestKeys::clientPubkey())->sign(Rumour::draft(
+            TestKeys::clientPubkey(),
+            EventKind::fromInt(EventKind::NOSTR_CONNECT),
+            EventContent::fromString('ciphertext'),
+            new TagCollection(),
+            Timestamp::fromInt($createdAt),
+        ));
     }
 
     private function relays(): RelayUrlCollection

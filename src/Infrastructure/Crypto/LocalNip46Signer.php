@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Innis\Nostr\Nip46\Infrastructure\Crypto;
 
 use Innis\Nostr\Core\Domain\Entity\Event;
+use Innis\Nostr\Core\Domain\Exception\EncryptionException;
 use Innis\Nostr\Core\Domain\Service\ConversationCipher;
+use Innis\Nostr\Core\Domain\Service\Nip04ConversationCipher;
 use Innis\Nostr\Core\Domain\Service\SignatureServiceInterface;
 use Innis\Nostr\Core\Domain\ValueObject\Identity\KeyPair;
 use Innis\Nostr\Core\Domain\ValueObject\Identity\PrivateKey;
@@ -18,10 +20,8 @@ use Innis\Nostr\Core\Infrastructure\Crypto\Secp256k1Signer;
 use Innis\Nostr\Nip46\Domain\Enum\EnvelopeCipher;
 use Innis\Nostr\Nip46\Domain\Service\EnvelopeCipherSuite;
 use Innis\Nostr\Nip46\Domain\Service\EnvelopeCipherSuiteInterface;
-use Innis\Nostr\Nip46\Domain\Service\Nip04ConversationCipher;
 use Innis\Nostr\Nip46\Domain\Service\Nip46SignerInterface;
 use Override;
-use Throwable;
 
 final readonly class LocalNip46Signer implements Nip46SignerInterface
 {
@@ -71,12 +71,13 @@ final readonly class LocalNip46Signer implements Nip46SignerInterface
         return $this->ciphers->cipherFor($cipher)->encrypt($plaintext, $this->keyPair->getPrivateKey(), $peer);
     }
 
+    // Deliberate: only the cipher's refusal of the peer's ciphertext or key is null — a fault in the signer's own machinery is thrown — see ADR-0029
     #[Override]
     public function decrypt(PublicKey $peer, string $ciphertext, EnvelopeCipher $cipher): ?string
     {
         try {
             return $this->ciphers->cipherFor($cipher)->decrypt($ciphertext, $this->keyPair->getPrivateKey(), $peer);
-        } catch (Throwable) {
+        } catch (EncryptionException) {
             return null;
         }
     }

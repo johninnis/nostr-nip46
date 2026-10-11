@@ -16,7 +16,7 @@ The second is what the queue is *for*. "Ask me" is exactly the behaviour a remot
 
 ## Decision
 
-An injected authoriser decides, per request, whether the app's grants cover it. A granted request is answered immediately, as before. An **ungranted request is queued** for the host to approve or reject, whatever its method — signing, decryption, encryption or identity. Nothing is refused for want of a grant.
+An injected authoriser decides, per request, whether the host's grants cover it for the connected client's key (ADR-0035). A granted request is answered immediately, as before. An **ungranted request is queued** for the host to approve or reject, whatever its method — signing, decryption, encryption or identity. Nothing is refused for want of a grant.
 
 The queue therefore holds a `PendingRequest` whose payload is a **detail**: `SignEventDetail`, `CryptoDetail` or `GetPublicKeyDetail`, behind one interface. A detail knows the permission it needs, the counterparty it concerns, and — given the signer and the current time — how to answer itself. The bunker builds the detail once, at dispatch, from the untrusted parameters; a request whose parameters do not parse is answered with an error there and never queued.
 
@@ -30,5 +30,6 @@ Which methods are subject to this is named by `Nip46Method::requiresAuthorisatio
 - Answering lives on the details, not in the bunker's dispatch: adding a method means adding a detail, and the dispatch gains one arm. There is no `instanceof` ladder over the detail types anywhere, because a detail answers itself.
 - A reader may expect an authorisation check to *reject*. It never does. The check chooses between answering now and asking; the only refusals in the bunker are for unparseable input, an unknown method, a bad secret, or an unconnected client.
 - An ungranted request occupies a queue slot until it is decided, and the queue is bounded: a client that floods ungranted requests fills it and is answered "too many pending requests", as a flood of signing requests already was.
-- Queued requests are still excluded from the activity listener (ADR-0020): the host records what it decides, the bunker records what it answers on its own.
+- Queued requests are still excluded from the activity listener (ADR-0021): the host records what it decides, the bunker records what it answers on its own.
 - If the host grants everything, behaviour is what it was before this record for every method except `sign_event`, which stays queued unless its kind is granted.
+- Shared decision: nostr-adrs ADR-0057.
