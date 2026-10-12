@@ -212,4 +212,5 @@ Design rationale lives in [`docs/adr/`](docs/adr).
 composer test          # phpunit + phpstan (level 9)
 composer check-style   # php-cs-fixer dry run
 composer check-rector  # rector dry run
+composer check-path-lengths  # no tracked path component over 95 characters
 ```
